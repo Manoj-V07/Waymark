@@ -9,6 +9,24 @@ from app.core.database import Base
 def generate_uuid():
     return str(uuid.uuid4())
 
+class RegulatoryRule(Base):
+    __tablename__ = "regulatory_rules"
+
+    rule_id = Column(String(36), primary_key=True, default=generate_uuid)
+    rule_code = Column(String(50), unique=True, nullable=False, index=True) # e.g. "RULE_NRI_QUOTA_CAP"
+    clause_reference = Column(String(100), nullable=False) # e.g. "APH 2024-27 Clause 2.8(b)"
+    rule_name = Column(String(150), nullable=False)
+    category_code = Column(String(50), nullable=False) # 'NRI', 'FN_OCI_CIWG', 'TFW', 'LATERAL_ENTRY', 'INTAKE_CAP'
+    effective_from_academic_year = Column(String(10), default="2024-25")
+    effective_to_academic_year = Column(String(10), nullable=True) # NULL means currently active
+    parameters_json = Column(JSON, nullable=False) # Dynamic parameters e.g. {"max_pct": 5.0}
+    severity = Column(String(20), default="CRITICAL") # 'INFO', 'WARNING', 'CRITICAL'
+    violation_template = Column(Text, nullable=False)
+    recommendation_template = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
 class Institution(Base):
     __tablename__ = "institutions"
     
@@ -60,7 +78,7 @@ class SeatApproval(Base):
     approval_id = Column(String(36), ForeignKey("approvals.approval_id"), nullable=False)
     category_code = Column(String(30), nullable=False) # 'NRI', 'FN_OCI_CIWG', 'TFW', 'PM_USPY', 'GIFTED_CHILDREN'
     approved_seats = Column(Integer, default=0)
-    is_above_intake = Column(Boolean, default=True) # False for NRI (within intake), True for FN/TFW
+    is_above_intake = Column(Boolean, default=True)
 
     approval = relationship("Approval", back_populates="seat_approvals")
 
@@ -72,7 +90,7 @@ class Student(Base):
     dob = Column(Date, nullable=False)
     gender = Column(String(20), nullable=False)
     email = Column(String(150))
-    identity_status = Column(String(30), default="PENDING_APAAR") # 'VERIFIED', 'PENDING_APAAR', 'ALTERNATIVE_ID', 'DISPUTED'
+    identity_status = Column(String(30), default="PENDING_APAAR")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     identities = relationship("StudentIdentity", back_populates="student")
@@ -84,9 +102,9 @@ class StudentIdentity(Base):
     
     identity_id = Column(String(36), primary_key=True, default=generate_uuid)
     student_id = Column(String(36), ForeignKey("students.student_id"), nullable=False)
-    identity_type = Column(String(30), nullable=False) # 'APAAR', 'PASSPORT', 'OCI_CARD'
+    identity_type = Column(String(30), nullable=False)
     identity_value_encrypted = Column(Text, nullable=False)
-    identity_masked = Column(String(20), nullable=False) # e.g. "XXXXXXXX9012"
+    identity_masked = Column(String(20), nullable=False)
     identity_checksum_hash = Column(String(64), nullable=False, unique=True, index=True)
     verification_source = Column(String(50), default="MOCK_ADAPTER")
     verified_at = Column(DateTime)
@@ -104,8 +122,8 @@ class Enrolment(Base):
     current_year_of_study = Column(Integer, default=1)
     roll_number_institutional = Column(String(50), nullable=False)
     university_reg_number = Column(String(100))
-    aicte_enrolment_number = Column(String(100)) # Required for PGDM
-    enrolment_status = Column(String(30), default="ACTIVE") # 'ACTIVE', 'TRANSFERRED', 'WITHDRAWN', 'COMPLETED'
+    aicte_enrolment_number = Column(String(100))
+    enrolment_status = Column(String(30), default="ACTIVE")
     enrolment_date = Column(Date, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -119,7 +137,7 @@ class AdmissionDetail(Base):
     
     admission_detail_id = Column(String(36), primary_key=True, default=generate_uuid)
     enrolment_id = Column(String(36), ForeignKey("enrolments.enrolment_id"), nullable=False)
-    seat_category = Column(String(30), nullable=False) # 'REGULAR_MERIT', 'MANAGEMENT', 'NRI', 'FN', 'OCI', 'CIWG', 'TFW', 'PM_USPY', 'LATERAL_ENTRY'
+    seat_category = Column(String(30), nullable=False)
     admission_channel = Column(String(50), nullable=False)
     allotment_order_ref = Column(String(100))
     is_supernumerary = Column(Boolean, default=False)
@@ -138,7 +156,7 @@ class IngestionBatch(Base):
     total_records = Column(Integer, default=0)
     valid_records = Column(Integer, default=0)
     flagged_records = Column(Integer, default=0)
-    batch_status = Column(String(30), default="PROCESSING") # 'PROCESSING', 'COMPLETED', 'FAILED', 'DRY_RUN'
+    batch_status = Column(String(30), default="PROCESSING")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     validation_results = relationship("ValidationResult", back_populates="batch")
@@ -150,7 +168,7 @@ class ValidationResult(Base):
     batch_id = Column(String(36), ForeignKey("ingestion_batches.batch_id"), nullable=True)
     enrolment_id = Column(String(36), ForeignKey("enrolments.enrolment_id"), nullable=True)
     rule_code = Column(String(50), nullable=False)
-    severity = Column(String(20), nullable=False) # 'INFO', 'WARNING', 'CRITICAL'
+    severity = Column(String(20), nullable=False)
     violation_message = Column(Text, nullable=False)
     aph_clause_reference = Column(String(100), nullable=False)
     details_json = Column(JSON)
@@ -168,7 +186,7 @@ class Consent(Base):
     verifier_id = Column(String(50), nullable=False)
     purpose = Column(String(150), nullable=False)
     scope_fields = Column(JSON, nullable=False)
-    status = Column(String(30), default="PENDING") # 'PENDING', 'GRANTED', 'DENIED', 'REVOKED'
+    status = Column(String(30), default="PENDING")
     granted_at = Column(DateTime)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -197,9 +215,8 @@ class User(Base):
     email = Column(String(150), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(100), nullable=False)
-    role = Column(String(50), nullable=False) # 'SUPER_ADMIN', 'AICTE_HQ', 'REGIONAL_OFFICER', 'INSTITUTION_NODAL', 'STUDENT', 'VERIFIER'
+    role = Column(String(50), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     institution = relationship("Institution", back_populates="users")
-
