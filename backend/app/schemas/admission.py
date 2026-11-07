@@ -46,7 +46,7 @@ class SingleStudentEnrolRequest(BaseModel):
     annual_family_income: Optional[float] = 0.0
 
 class EnrolmentStatusUpdate(BaseModel):
-    new_status: str = Field(..., example="WITHDRAWN") # 'ACTIVE', 'TRANSFERRED', 'WITHDRAWN', 'COMPLETED', 'CANCELLED'
+    new_status: str = Field(..., example="WITHDRAWN")
     reason: str = Field(..., example="Student opted for another institution during round 3 counselling.")
 
 class IdentityCorrectionRequest(BaseModel):
@@ -54,3 +54,24 @@ class IdentityCorrectionRequest(BaseModel):
     corrected_dob: Optional[date] = None
     corrected_apaar_id: Optional[str] = None
     supporting_document_ref: str
+
+# ----------------- MODULE 10: DISPUTE & CASE SCHEMAS -----------------
+class OpenCaseRequest(BaseModel):
+    institution_id: str
+    programme_id: str
+    academic_year: str = "2026-27"
+    rule_code: str
+    clause_reference: str
+    violation_summary: str
+    excess_count: int = 0
+    indicative_penalty_inr: float = 0.0
+    show_cause_notice: str
+
+class InstitutionCaseResponse(BaseModel):
+    institution_response: str
+    supporting_doc_ref: str
+
+class OfficerDecisionRequest(BaseModel):
+    decision: str = Field(..., example="EXEMPTED_MERIT") # 'EXEMPTED_MERIT', 'INTAKE_ADJUSTED', 'PENALTY_CONFIRMED'
+    remarks: str
+    officer_name: str = "Regional Review Officer"

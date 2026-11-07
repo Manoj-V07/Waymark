@@ -13,15 +13,17 @@ from app.core.database import engine, Base, get_db
 from app.models.entities import (
     RegulatoryRule, Institution, Programme, Approval, SeatApproval, User,
     IngestionBatch, Enrolment, Student, StudentIdentity, AuditLog, ValidationResult,
-    AdmissionDetail
+    AdmissionDetail, RegulatoryCase
 )
 from app.schemas.admission import (
     LoginRequest, InstitutionCreate, ProgrammeCreate, ApprovalCreate,
-    SingleStudentEnrolRequest, EnrolmentStatusUpdate, IdentityCorrectionRequest
+    SingleStudentEnrolRequest, EnrolmentStatusUpdate, IdentityCorrectionRequest,
+    OpenCaseRequest, InstitutionCaseResponse, OfficerDecisionRequest
 )
 from app.core.security import get_password_hash, verify_password, create_access_token, calculate_sha256_hash
 from app.services.regulatory_engine import RegulatoryRuleEngine
 from app.services.apaar_validator import APAARValidator
+from app.services.duplicate_detector import DuplicateAnomalyDetector
 from app.services.ingestion_parser import IngestionParser
 from app.services.ingestion_service import AdmissionIngestionService
 
@@ -60,7 +62,10 @@ def health_check(db: Session = Depends(get_db)):
         "database": "connected",
         "rules_engine": "APH Dynamic Configurable Active",
         "apaar_adapter": "ready",
-        "modules_active": ["M1_INSTITUTION", "M2_IDENTITY", "M3_ENROLMENT", "M4_INGESTION", "M5_APAAR_VALIDATOR"]
+        "modules_active": [
+            "M1_INSTITUTION", "M2_IDENTITY", "M3_ENROLMENT", "M4_INGESTION", "M5_APAAR_VALIDATOR",
+            "M6_REGULATORY_RULES", "M7_DUPLICATE_ANOMALY", "M10_CASE_WORKFLOW"
+        ]
     }
 
 # =========================================================================
@@ -69,7 +74,6 @@ def health_check(db: Session = Depends(get_db)):
 
 @app.post(f"{settings.API_V1_STR}/auth/login")
 def user_login(req: LoginRequest, db: Session = Depends(get_db)):
-    """Authenticates AICTE Officers, Institutional Nodal Officers, Students, and Verifiers."""
     user = db.query(User).filter(User.email == req.email).first()
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(
@@ -97,7 +101,6 @@ def user_login(req: LoginRequest, db: Session = Depends(get_db)):
 
 @app.post(f"{settings.API_V1_STR}/institutions")
 def create_institution(req: InstitutionCreate, db: Session = Depends(get_db)):
-    """Registers an AICTE-approved institution with permanent ID (PID)."""
     existing = db.query(Institution).filter(Institution.pid == req.pid).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"Institution with PID {req.pid} already exists.")
@@ -119,7 +122,6 @@ def create_institution(req: InstitutionCreate, db: Session = Depends(get_db)):
 
 @app.get(f"{settings.API_V1_STR}/institutions/{{institution_id}}/eoa")
 def get_institution_eoa_details(institution_id: str, academic_year: str = "2026-27", db: Session = Depends(get_db)):
-    """Retrieves authoritative EoA approvals, course breakdown, and seat quotas."""
     inst = db.query(Institution).filter(Institution.institution_id == institution_id).first()
     if not inst:
         raise HTTPException(status_code=404, detail="Institution not found.")
@@ -196,12 +198,11 @@ def list_active_institutions(db: Session = Depends(get_db)):
     return output
 
 # =========================================================================
-# MODULE 2: STUDENT IDENTITY REGISTRY (APAAR & FALLBACK)
+# MODULE 2: STUDENT IDENTITY REGISTRY
 # =========================================================================
 
 @app.get(f"{settings.API_V1_STR}/students/{{student_id}}/identity")
 def get_student_identity_record(student_id: str, db: Session = Depends(get_db)):
-    """Retrieves protected student academic identity details."""
     student = db.query(Student).filter(Student.student_id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student record not found.")
@@ -239,12 +240,10 @@ def get_student_identity_record(student_id: str, db: Session = Depends(get_db)):
 
 @app.post(f"{settings.API_V1_STR}/students/{{student_id}}/correction-request")
 def request_identity_correction(student_id: str, req: IdentityCorrectionRequest, db: Session = Depends(get_db)):
-    """Submits an identity correction request with supporting document reference."""
     student = db.query(Student).filter(Student.student_id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student record not found.")
 
-    # Record in audit log
     audit_payload = {
         "student_id": student_id,
         "proposed_changes": req.model_dump(exclude_none=True),
@@ -275,13 +274,11 @@ def request_identity_correction(student_id: str, req: IdentityCorrectionRequest,
     }
 
 # =========================================================================
-# MODULE 3: STUDENT ENROLMENT LIFECYCLE MANAGEMENT
+# MODULE 3: STUDENT ENROLMENT LIFECYCLE
 # =========================================================================
 
 @app.post(f"{settings.API_V1_STR}/students/enrol")
 def direct_single_student_enrol(req: SingleStudentEnrolRequest, db: Session = Depends(get_db)):
-    """Direct REST endpoint for college ERPs to register individual students upon admission."""
-    # Convert single student into list and process through AdmissionIngestionService
     record = {
         "row_number": 1,
         "apaar_id": req.apaar_id or "",
@@ -313,7 +310,6 @@ def direct_single_student_enrol(req: SingleStudentEnrolRequest, db: Session = De
 
 @app.patch(f"{settings.API_V1_STR}/enrolments/{{enrolment_id}}/status")
 def update_enrolment_status(enrolment_id: str, req: EnrolmentStatusUpdate, db: Session = Depends(get_db)):
-    """Transitions student enrolment state (ACTIVE -> WITHDRAWN / TRANSFERRED / COMPLETED)."""
     enrolment = db.query(Enrolment).filter(Enrolment.enrolment_id == enrolment_id).first()
     if not enrolment:
         raise HTTPException(status_code=404, detail="Enrolment record not found.")
@@ -321,7 +317,6 @@ def update_enrolment_status(enrolment_id: str, req: EnrolmentStatusUpdate, db: S
     old_status = enrolment.enrolment_status
     enrolment.enrolment_status = req.new_status
 
-    # Record in audit chain
     audit_payload = {
         "enrolment_id": enrolment_id,
         "old_status": old_status,
@@ -412,7 +407,6 @@ async def upload_admission_batch(
 
 @app.get(f"{settings.API_V1_STR}/ingestion/batches")
 def list_ingestion_batches(institution_id: Optional[str] = None, db: Session = Depends(get_db)):
-    """Lists historical admission upload batches and summary metrics."""
     query = db.query(IngestionBatch)
     if institution_id:
         query = query.filter(IngestionBatch.institution_id == institution_id)
@@ -421,7 +415,6 @@ def list_ingestion_batches(institution_id: Optional[str] = None, db: Session = D
 
 @app.get(f"{settings.API_V1_STR}/ingestion/batches/{{batch_id}}/export-errors")
 def export_batch_errors(batch_id: str, db: Session = Depends(get_db)):
-    """Exports flagged/invalid records of a batch as a downloadable error spreadsheet."""
     results = db.query(ValidationResult).filter(ValidationResult.batch_id == batch_id).all()
     if not results:
         raise HTTPException(status_code=404, detail="No error flags found for this batch.")
@@ -447,7 +440,253 @@ def export_batch_errors(batch_id: str, db: Session = Depends(get_db)):
     )
 
 # =========================================================================
-# MODULE 5: APAAR VALIDATION ENGINE & REGULATORY RULES
+# MODULE 6 & 7: REGULATORY RULES & TF-IDF ANOMALY DETECTION
+# =========================================================================
+
+@app.get(f"{settings.API_V1_STR}/rules")
+def get_regulatory_rules(academic_year: str = "2026-27", db: Session = Depends(get_db)):
+    rules = db.query(RegulatoryRule).filter(RegulatoryRule.is_active == True).all()
+    if not rules:
+        return RegulatoryRuleEngine.get_active_rules(db=db, academic_year=academic_year)
+    return rules
+
+@app.post(f"{settings.API_V1_STR}/rules/update-parameter")
+def update_rule_parameter(payload: dict, db: Session = Depends(get_db)):
+    rule_code = payload.get("rule_code")
+    new_params = payload.get("parameters")
+    
+    rule = db.query(RegulatoryRule).filter(RegulatoryRule.rule_code == rule_code).first()
+    if not rule:
+        rule = RegulatoryRule(
+            rule_code=rule_code,
+            clause_reference=payload.get("clause_reference", "AICTE Notification"),
+            rule_name=payload.get("rule_name", rule_code),
+            category_code=payload.get("category_code", "GENERAL"),
+            parameters_json=new_params,
+            violation_template="Threshold exceeded.",
+            recommendation_template="Review rule update."
+        )
+        db.add(rule)
+    else:
+        rule.parameters_json = new_params
+
+    db.commit()
+    db.refresh(rule)
+    return {
+        "status": "success",
+        "message": f"Rule {rule_code} parameters updated successfully.",
+        "rule": rule
+    }
+
+@app.post(f"{settings.API_V1_STR}/validation/compliance/evaluate-programme")
+def evaluate_programme_compliance(institution_id: str, programme_id: str, academic_year: str = "2026-27", db: Session = Depends(get_db)):
+    """Deep evaluation of a programme's roster against APH 2024-27 rules."""
+    approval = db.query(Approval).filter(
+        Approval.programme_id == programme_id,
+        Approval.academic_year == academic_year
+    ).first()
+    if not approval:
+        raise HTTPException(status_code=404, detail="No approval found for this programme and academic year.")
+
+    enrolments = db.query(Enrolment).filter(
+        Enrolment.programme_id == programme_id,
+        Enrolment.academic_year == academic_year,
+        Enrolment.enrolment_status == "ACTIVE"
+    ).all()
+
+    enrolled_regular = 0
+    enrolled_nri = 0
+    supernumerary_counts = {}
+
+    for e in enrolments:
+        if e.admission_details:
+            cat = e.admission_details.seat_category
+            if cat == "NRI":
+                enrolled_nri += 1
+            elif e.admission_details.is_supernumerary:
+                supernumerary_counts[cat] = supernumerary_counts.get(cat, 0) + 1
+            else:
+                enrolled_regular += 1
+        else:
+            enrolled_regular += 1
+
+    eval_result = RegulatoryRuleEngine.evaluate_programme_intake(
+        approved_intake=approval.approved_intake,
+        enrolled_regular=enrolled_regular,
+        enrolled_nri=enrolled_nri,
+        enrolled_supernumerary=supernumerary_counts,
+        db=db,
+        academic_year=academic_year
+    )
+    return eval_result
+
+@app.post(f"{settings.API_V1_STR}/anomalies/detect-near-duplicates")
+def detect_near_duplicates_in_programme(programme_id: str, threshold: float = 0.85, db: Session = Depends(get_db)):
+    """Uses scikit-learn TF-IDF to find suspicious near-identical student names sharing the same DOB."""
+    enrolments = db.query(Enrolment).filter(
+        Enrolment.programme_id == programme_id,
+        Enrolment.enrolment_status == "ACTIVE"
+    ).all()
+
+    candidates = []
+    for e in enrolments:
+        candidates.append({
+            "student_id": e.student.student_id,
+            "name": e.student.full_name,
+            "dob": e.student.dob.strftime("%Y-%m-%d"),
+            "roll_no": e.roll_number_institutional,
+            "apaar_masked": e.student.identities[0].identity_masked if e.student.identities else "PENDING"
+        })
+
+    suspects = DuplicateAnomalyDetector.detect_fuzzy_demographic_matches(candidates, threshold=threshold)
+    return {
+        "programme_id": programme_id,
+        "candidates_analyzed": len(candidates),
+        "anomalies_detected": len(suspects),
+        "matches": suspects
+    }
+
+# =========================================================================
+# MODULE 10: REGULATORY DISPUTE & CASE MANAGEMENT
+# =========================================================================
+
+@app.get(f"{settings.API_V1_STR}/cases")
+def list_regulatory_cases(institution_id: Optional[str] = None, status_filter: Optional[str] = None, db: Session = Depends(get_db)):
+    """Lists show-cause and regulatory compliance review cases."""
+    query = db.query(RegulatoryCase)
+    if institution_id:
+        query = query.filter(RegulatoryCase.institution_id == institution_id)
+    if status_filter:
+        query = query.filter(RegulatoryCase.status == status_filter)
+    cases = query.order_by(RegulatoryCase.created_at.desc()).all()
+    return cases
+
+@app.post(f"{settings.API_V1_STR}/cases/open")
+def open_regulatory_case(req: OpenCaseRequest, db: Session = Depends(get_db)):
+    """AICTE Officer opens an official show-cause case against an institution."""
+    case_count = db.query(RegulatoryCase).count() + 1
+    case_num = f"RC-2026-{case_count:04d}"
+
+    case = RegulatoryCase(
+        case_number=case_num,
+        institution_id=req.institution_id,
+        programme_id=req.programme_id,
+        academic_year=req.academic_year,
+        rule_code=req.rule_code,
+        clause_reference=req.clause_reference,
+        violation_summary=req.violation_summary,
+        excess_count=req.excess_count,
+        indicative_penalty_inr=req.indicative_penalty_inr,
+        show_cause_notice=req.show_cause_notice,
+        notice_issued_at=datetime.now(timezone.utc),
+        status="SHOW_CAUSE_ISSUED"
+    )
+    db.add(case)
+    db.commit()
+    db.refresh(case)
+
+    # Append to SHA-256 Audit Log
+    audit_payload = {
+        "case_id": case.case_id,
+        "case_number": case_num,
+        "institution_id": req.institution_id,
+        "rule_code": req.rule_code,
+        "excess_count": req.excess_count
+    }
+    last_log = db.query(AuditLog).order_by(AuditLog.log_id.desc()).first()
+    prev_hash = last_log.current_block_hash if last_log else "0" * 64
+    curr_time = datetime.now(timezone.utc).isoformat()
+    curr_hash = calculate_sha256_hash(audit_payload, prev_hash, "AICTE_HQ_OFFICER", curr_time)
+
+    audit_entry = AuditLog(
+        actor_id="AICTE_HQ_OFFICER",
+        actor_role="AICTE_HQ",
+        action="SHOW_CAUSE_NOTICE_ISSUED",
+        resource_type="REGULATORY_CASE",
+        resource_id=case.case_id,
+        details_json=audit_payload,
+        previous_block_hash=prev_hash,
+        current_block_hash=curr_hash
+    )
+    db.add(audit_entry)
+    db.commit()
+
+    return {
+        "status": "success",
+        "case_number": case_num,
+        "case": case,
+        "audit_hash": curr_hash
+    }
+
+@app.post(f"{settings.API_V1_STR}/cases/{{case_id}}/respond")
+def submit_institution_response(case_id: str, req: InstitutionCaseResponse, db: Session = Depends(get_db)):
+    """Institution Nodal Officer submits written justification & documentary evidence."""
+    case = db.query(RegulatoryCase).filter(RegulatoryCase.case_id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Regulatory case not found.")
+
+    case.institution_response = req.institution_response
+    case.supporting_doc_ref = req.supporting_doc_ref
+    case.response_submitted_at = datetime.now(timezone.utc)
+    case.status = "RESPONSE_SUBMITTED"
+
+    db.commit()
+    db.refresh(case)
+    return {
+        "status": "success",
+        "message": "Institution response recorded. Case submitted for AICTE Officer review.",
+        "case": case
+    }
+
+@app.post(f"{settings.API_V1_STR}/cases/{{case_id}}/decide")
+def record_officer_decision(case_id: str, req: OfficerDecisionRequest, db: Session = Depends(get_db)):
+    """AICTE Officer records the final non-automated human decision."""
+    case = db.query(RegulatoryCase).filter(RegulatoryCase.case_id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Regulatory case not found.")
+
+    case.officer_decision = req.decision
+    case.officer_remarks = req.remarks
+    case.resolved_by_officer = req.officer_name
+    case.resolved_at = datetime.now(timezone.utc)
+    case.status = "RESOLVED_EXEMPT" if "EXEMPT" in req.decision else "PENALTY_CONFIRMED"
+
+    # Append decision to SHA-256 Audit Chain
+    audit_payload = {
+        "case_id": case.case_id,
+        "decision": req.decision,
+        "officer": req.officer_name,
+        "remarks": req.remarks
+    }
+    last_log = db.query(AuditLog).order_by(AuditLog.log_id.desc()).first()
+    prev_hash = last_log.current_block_hash if last_log else "0" * 64
+    curr_time = datetime.now(timezone.utc).isoformat()
+    curr_hash = calculate_sha256_hash(audit_payload, prev_hash, req.officer_name, curr_time)
+
+    audit_entry = AuditLog(
+        actor_id=req.officer_name,
+        actor_role="AICTE_REGIONAL_OFFICER",
+        action="CASE_DECISION_RECORDED",
+        resource_type="REGULATORY_CASE",
+        resource_id=case.case_id,
+        details_json=audit_payload,
+        previous_block_hash=prev_hash,
+        current_block_hash=curr_hash
+    )
+    db.add(audit_entry)
+    db.commit()
+    db.refresh(case)
+
+    return {
+        "status": "success",
+        "case_number": case.case_number,
+        "decision": req.decision,
+        "audit_hash": curr_hash,
+        "case": case
+    }
+
+# =========================================================================
+# MODULE 5 & SYSTEM HELPERS
 # =========================================================================
 
 @app.post(f"{settings.API_V1_STR}/validation/apaar/verify")
@@ -457,23 +696,6 @@ def verify_apaar(payload: dict):
     dob = payload.get("dob", "2005-01-01")
     return APAARValidator.verify_against_registry(apaar_id, name, dob)
 
-@app.post(f"{settings.API_V1_STR}/validation/compliance/evaluate")
-def evaluate_compliance(payload: dict, db: Session = Depends(get_db)):
-    approved_intake = payload.get("approved_intake", 120)
-    enrolled_regular = payload.get("enrolled_regular", 120)
-    enrolled_nri = payload.get("enrolled_nri", 0)
-    enrolled_supernumerary = payload.get("enrolled_supernumerary", {})
-    academic_year = payload.get("academic_year", "2026-27")
-    
-    return RegulatoryRuleEngine.evaluate_programme_intake(
-        approved_intake=approved_intake,
-        enrolled_regular=enrolled_regular,
-        enrolled_nri=enrolled_nri,
-        enrolled_supernumerary=enrolled_supernumerary,
-        db=db,
-        academic_year=academic_year
-    )
-
 @app.get(f"{settings.API_V1_STR}/audit/chain")
 def get_audit_chain(limit: int = 10, db: Session = Depends(get_db)):
     logs = db.query(AuditLog).order_by(AuditLog.log_id.desc()).limit(limit).all()
@@ -481,7 +703,6 @@ def get_audit_chain(limit: int = 10, db: Session = Depends(get_db)):
 
 @app.post(f"{settings.API_V1_STR}/seed-demo-data")
 def seed_demo_data(db: Session = Depends(get_db)):
-    """Populates realistic demo institutions and configurable regulatory rules."""
     existing_rule = db.query(RegulatoryRule).first()
     if not existing_rule:
         rules_to_seed = [
@@ -580,6 +801,28 @@ def seed_demo_data(db: Session = Depends(get_db)):
             SeatApproval(approval_id=approval.approval_id, category_code="TFW", approved_seats=6, is_above_intake=True)
         ]
         db.add_all(seat_caps)
+
+    # Seed an example Regulatory Case for demonstration
+    existing_case = db.query(RegulatoryCase).first()
+    if not existing_case:
+        demo_inst = db.query(Institution).first()
+        demo_prog = demo_inst.programmes[0]
+        case = RegulatoryCase(
+            case_number="RC-2026-0001",
+            institution_id=demo_inst.institution_id,
+            programme_id=demo_prog.programme_id,
+            academic_year="2026-27",
+            rule_code="RULE_INTAKE_CAP",
+            clause_reference="APH Clause 7.4(g)",
+            severity="CRITICAL",
+            violation_summary="Admissions in within-intake pool exceed sanctioned limit of 120 by 6 seats.",
+            excess_count=6,
+            indicative_penalty_inr=150000.0,
+            show_cause_notice="Submit justification for admitting 6 candidates above the approved intake.",
+            notice_issued_at=datetime.now(timezone.utc),
+            status="SHOW_CAUSE_ISSUED"
+        )
+        db.add(case)
 
     db.commit()
     return {"message": "Configurable AICTE regulatory rules and demo institution successfully seeded."}

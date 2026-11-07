@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { OverviewSection } from "@/components/overview/OverviewSection";
 import { UploadSection } from "@/components/upload/UploadSection";
+import { DisputesSection } from "@/components/disputes/DisputesSection";
 import { ValidatorSection } from "@/components/validator/ValidatorSection";
 import { InstitutionsSection } from "@/components/institutions/InstitutionsSection";
 import { TabType, ActiveInstitution } from "@/types";
@@ -51,12 +52,9 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex font-sans">
-      {/* Reusable Vertical Sidebar */}
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
 
-      {/* Main Content Workspace */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Minimal Header */}
         <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shadow-sm sticky top-0 z-30">
           <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium">
             <span>AICTE Central Portal</span>
@@ -74,7 +72,6 @@ export default function HomePage() {
           </div>
         </header>
 
-        {/* Dynamic Section Renderer */}
         <main className="p-8 max-w-7xl mx-auto w-full">
           {activeTab === "overview" && <OverviewSection />}
 
@@ -88,6 +85,8 @@ export default function HomePage() {
               onUploadSuccess={loadInstitutions}
             />
           )}
+
+          {activeTab === "disputes" && <DisputesSection />}
 
           {activeTab === "validator" && <ValidatorSection />}
 

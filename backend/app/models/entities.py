@@ -13,14 +13,14 @@ class RegulatoryRule(Base):
     __tablename__ = "regulatory_rules"
 
     rule_id = Column(String(36), primary_key=True, default=generate_uuid)
-    rule_code = Column(String(50), unique=True, nullable=False, index=True) # e.g. "RULE_NRI_QUOTA_CAP"
-    clause_reference = Column(String(100), nullable=False) # e.g. "APH 2024-27 Clause 2.8(b)"
+    rule_code = Column(String(50), unique=True, nullable=False, index=True)
+    clause_reference = Column(String(100), nullable=False)
     rule_name = Column(String(150), nullable=False)
-    category_code = Column(String(50), nullable=False) # 'NRI', 'FN_OCI_CIWG', 'TFW', 'LATERAL_ENTRY', 'INTAKE_CAP'
+    category_code = Column(String(50), nullable=False)
     effective_from_academic_year = Column(String(10), default="2024-25")
-    effective_to_academic_year = Column(String(10), nullable=True) # NULL means currently active
-    parameters_json = Column(JSON, nullable=False) # Dynamic parameters e.g. {"max_pct": 5.0}
-    severity = Column(String(20), default="CRITICAL") # 'INFO', 'WARNING', 'CRITICAL'
+    effective_to_academic_year = Column(String(10), nullable=True)
+    parameters_json = Column(JSON, nullable=False)
+    severity = Column(String(20), default="CRITICAL")
     violation_template = Column(Text, nullable=False)
     recommendation_template = Column(Text, nullable=False)
     is_active = Column(Boolean, default=True)
@@ -43,6 +43,7 @@ class Institution(Base):
 
     programmes = relationship("Programme", back_populates="institution")
     users = relationship("User", back_populates="institution")
+    cases = relationship("RegulatoryCase", back_populates="institution")
 
 class Programme(Base):
     __tablename__ = "programmes"
@@ -50,20 +51,21 @@ class Programme(Base):
     programme_id = Column(String(36), primary_key=True, default=generate_uuid)
     institution_id = Column(String(36), ForeignKey("institutions.institution_id"), nullable=False)
     programme_name = Column(String(150), nullable=False)
-    level = Column(String(20), nullable=False) # 'UG', 'PG', 'DIPLOMA', 'PGDM'
+    level = Column(String(20), nullable=False)
     duration_years = Column(Integer, default=4)
     is_active = Column(Boolean, default=True)
 
     institution = relationship("Institution", back_populates="programmes")
     approvals = relationship("Approval", back_populates="programme")
     enrolments = relationship("Enrolment", back_populates="programme")
+    cases = relationship("RegulatoryCase", back_populates="programme")
 
 class Approval(Base):
     __tablename__ = "approvals"
     
     approval_id = Column(String(36), primary_key=True, default=generate_uuid)
     programme_id = Column(String(36), ForeignKey("programmes.programme_id"), nullable=False)
-    academic_year = Column(String(10), nullable=False) # e.g. "2026-27"
+    academic_year = Column(String(10), nullable=False)
     eoa_reference_number = Column(String(100), nullable=False)
     approved_intake = Column(Integer, nullable=False)
     is_supernumerary_eligible = Column(Boolean, default=True)
@@ -76,7 +78,7 @@ class SeatApproval(Base):
     
     seat_approval_id = Column(String(36), primary_key=True, default=generate_uuid)
     approval_id = Column(String(36), ForeignKey("approvals.approval_id"), nullable=False)
-    category_code = Column(String(30), nullable=False) # 'NRI', 'FN_OCI_CIWG', 'TFW', 'PM_USPY', 'GIFTED_CHILDREN'
+    category_code = Column(String(30), nullable=False)
     approved_seats = Column(Integer, default=0)
     is_above_intake = Column(Boolean, default=True)
 
@@ -172,11 +174,50 @@ class ValidationResult(Base):
     violation_message = Column(Text, nullable=False)
     aph_clause_reference = Column(String(100), nullable=False)
     details_json = Column(JSON)
-    resolution_status = Column(String(30), default="OPEN")
+    resolution_status = Column(String(30), default="OPEN") # 'OPEN', 'CASE_OPENED', 'RESOLVED'
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     batch = relationship("IngestionBatch", back_populates="validation_results")
     enrolment = relationship("Enrolment", back_populates="validation_results")
+
+# =========================================================================
+# MODULE 10: REGULATORY DISPUTE & CASE MANAGEMENT
+# =========================================================================
+class RegulatoryCase(Base):
+    __tablename__ = "regulatory_cases"
+
+    case_id = Column(String(36), primary_key=True, default=generate_uuid)
+    case_number = Column(String(50), unique=True, nullable=False, index=True) # e.g. "RC-2026-0042"
+    institution_id = Column(String(36), ForeignKey("institutions.institution_id"), nullable=False)
+    programme_id = Column(String(36), ForeignKey("programmes.programme_id"), nullable=False)
+    academic_year = Column(String(10), nullable=False)
+    rule_code = Column(String(50), nullable=False) # e.g. "RULE_INTAKE_CAP"
+    clause_reference = Column(String(100), nullable=False)
+    severity = Column(String(20), default="CRITICAL") # 'WARNING', 'CRITICAL'
+    violation_summary = Column(Text, nullable=False)
+    excess_count = Column(Integer, default=0)
+    indicative_penalty_inr = Column(Numeric(12, 2), default=0.0) # Calculated per APH 7.3(g)
+    
+    # Workflow Lifecycle: 'OPEN', 'SHOW_CAUSE_ISSUED', 'RESPONSE_SUBMITTED', 'RESOLVED_EXEMPT', 'PENALTY_CONFIRMED'
+    status = Column(String(30), default="OPEN")
+    
+    show_cause_notice = Column(Text, nullable=True)
+    notice_issued_at = Column(DateTime, nullable=True)
+    
+    institution_response = Column(Text, nullable=True)
+    supporting_doc_ref = Column(String(255), nullable=True)
+    response_submitted_at = Column(DateTime, nullable=True)
+    
+    officer_decision = Column(String(50), nullable=True) # 'EXEMPTED_MERIT', 'INTAKE_ADJUSTED', 'PENALTY_CONFIRMED'
+    officer_remarks = Column(Text, nullable=True)
+    resolved_by_officer = Column(String(50), nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    institution = relationship("Institution", back_populates="cases")
+    programme = relationship("Programme", back_populates="cases")
 
 class Consent(Base):
     __tablename__ = "consents"

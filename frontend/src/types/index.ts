@@ -43,5 +43,26 @@ export interface IngestionResponse {
   message?: string;
 }
 
-export type TabType = "overview" | "upload" | "validator" | "institutions";
+export interface RegulatoryCaseData {
+  case_id: string;
+  case_number: string;
+  institution_id: string;
+  programme_id: string;
+  academic_year: string;
+  rule_code: string;
+  clause_reference: string;
+  severity: string;
+  violation_summary: string;
+  excess_count: number;
+  indicative_penalty_inr: number;
+  status: "OPEN" | "SHOW_CAUSE_ISSUED" | "RESPONSE_SUBMITTED" | "RESOLVED_EXEMPT" | "PENALTY_CONFIRMED";
+  show_cause_notice?: string;
+  institution_response?: string;
+  supporting_doc_ref?: string;
+  officer_decision?: string;
+  officer_remarks?: string;
+  resolved_by_officer?: string;
+  created_at: string;
+}
 
+export type TabType = "overview" | "upload" | "validator" | "institutions" | "disputes";

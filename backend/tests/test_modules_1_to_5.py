@@ -105,3 +105,4 @@ def test_module_4_and_5_batch_history_and_validator(db_session):
     valid_format, clean_id = APAARValidator.validate_format("123456789012")
     assert valid_format is True
     assert clean_id == "123456789012"
+

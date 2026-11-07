@@ -6,7 +6,8 @@ import {
   UploadCloud, 
   ShieldCheck, 
   Building2, 
-  CheckCircle
+  CheckCircle,
+  Gavel
 } from "lucide-react";
 import { TabType } from "@/types";
 
@@ -25,9 +26,15 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
     },
     {
       id: "upload" as TabType,
-      label: "Student Data Ingestion",
+      label: "Student Ingestion",
       description: "Batch Excel/CSV uploader",
       icon: UploadCloud
+    },
+    {
+      id: "disputes" as TabType,
+      label: "Regulatory Disputes",
+      description: "Show-cause & officer review",
+      icon: Gavel
     },
     {
       id: "validator" as TabType,
@@ -45,7 +52,6 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
 
   return (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col justify-between h-screen sticky top-0 z-40 shadow-sm">
-      {/* Brand Header */}
       <div>
         <div className="p-5 border-b border-slate-200 flex items-center space-x-3">
           <div className="bg-blue-900 text-white font-bold p-2 rounded-lg text-sm tracking-wider shadow-sm">
@@ -57,7 +63,6 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
           </div>
         </div>
 
-        {/* Navigation Section */}
         <div className="px-3 py-4">
           <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-3 mb-2">
             Navigation Menu
@@ -88,7 +93,6 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
         </div>
       </div>
 
-      {/* Footer System Status */}
       <div className="p-4 border-t border-slate-200 bg-slate-50">
         <div className="flex items-center space-x-2 text-xs text-slate-600 mb-1">
           <CheckCircle className="w-4 h-4 text-emerald-600" />
@@ -101,4 +105,3 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
     </aside>
   );
 }
-
