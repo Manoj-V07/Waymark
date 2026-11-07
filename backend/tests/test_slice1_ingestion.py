@@ -122,3 +122,4 @@ def test_dry_run_vs_live_commit(db_session):
     latest_audit = db_session.query(AuditLog).order_by(AuditLog.log_id.desc()).first()
     assert latest_audit.current_block_hash == live_result["audit_hash"]
     assert latest_audit.action == "BULK_STUDENT_ADMISSION_UPLOAD"
+

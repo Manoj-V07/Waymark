@@ -103,3 +103,4 @@ Automated Pytest suite executed via [backend/tests/test_slice1_ingestion.py](fil
 | `test_ingestion_parser_with_sample_template` | Verifies CSV parsing, mandatory field checks, and provisional `PENDING_APAAR` warning generation. | **PASSED** |
 | `test_dry_run_vs_live_commit` | Verifies that dry-run mode commits 0 records to the database, while live mode commits 100% of valid records and updates the SHA-256 audit chain. | **PASSED** |
 | **Frontend Production Build** | Compiles TypeScript types, Tailwind CSS, and Next.js 14 App Router without linting or type errors. | **PASSED** |
+
