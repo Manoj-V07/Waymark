@@ -1,12 +1,19 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+import io
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Response
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import engine, Base, get_db
-from app.models.entities import RegulatoryRule, Institution, Programme, Approval, SeatApproval, User
+from app.models.entities import (
+    RegulatoryRule, Institution, Programme, Approval, SeatApproval, User,
+    IngestionBatch, Enrolment, Student, StudentIdentity, AuditLog, ValidationResult
+)
 from app.core.security import get_password_hash
 from app.services.regulatory_engine import RegulatoryRuleEngine
 from app.services.apaar_validator import APAARValidator
+from app.services.ingestion_parser import IngestionParser
+from app.services.ingestion_service import AdmissionIngestionService
 
 # Create all database tables
 Base.metadata.create_all(bind=engine)
@@ -43,51 +50,117 @@ def health_check(db: Session = Depends(get_db)):
         "status": "healthy",
         "database": "connected",
         "rules_engine": "APH Dynamic Configurable Active",
-        "apaar_adapter": "ready"
+        "apaar_adapter": "ready",
+        "ingestion_engine": "ready"
     }
 
-# ----------------- REGULATORY RULES CRUD (AICTE HQ Configurable) -----------------
+# ----------------- SLICE 1: INGESTION & TEMPLATE ENDPOINTS -----------------
+
+@app.get(f"{settings.API_V1_STR}/ingestion/template")
+def download_template(format: str = "csv"):
+    """Generates standard AICTE Student Admission import template."""
+    df = IngestionParser.generate_template_dataframe()
+    if format.lower() == "xlsx":
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="AICTE_Student_Admission")
+        output.seek(0)
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=aicte_student_admission_template.xlsx"}
+        )
+    else:
+        csv_data = df.to_csv(index=False)
+        return Response(
+            content=csv_data,
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=aicte_student_admission_template.csv"}
+        )
+
+@app.post(f"{settings.API_V1_STR}/ingestion/upload")
+async def upload_admission_batch(
+    file: UploadFile = File(...),
+    institution_id: str = Form(...),
+    programme_id: str = Form(...),
+    academic_year: str = Form("2026-27"),
+    dry_run: bool = Form(False),
+    db: Session = Depends(get_db)
+):
+    """
+    Parses and processes bulk Excel/CSV student admissions.
+    Supports dry-run validation, row-level error reporting, and SHA-256 audit hashing.
+    """
+    contents = await file.read()
+    records, flags = IngestionParser.parse_file_contents(contents, file.filename)
+
+    if not records and flags:
+        # File parsing failure
+        return {
+            "status": "rejected",
+            "message": flags[0]["violation_message"],
+            "flags": flags
+        }
+
+    # Execute ingestion service
+    result = AdmissionIngestionService.process_admission_batch(
+        db=db,
+        institution_id=institution_id,
+        programme_id=programme_id,
+        academic_year=academic_year,
+        file_name=file.filename,
+        records=records,
+        parsing_flags=flags,
+        dry_run=dry_run
+    )
+    return result
+
+@app.get(f"{settings.API_V1_STR}/institutions/active")
+def list_active_institutions(db: Session = Depends(get_db)):
+    """Returns active institutions and their approved programmes for the upload dropdown."""
+    institutions = db.query(Institution).all()
+    output = []
+    for inst in institutions:
+        progs = []
+        for p in inst.programmes:
+            appr = db.query(Approval).filter(
+                Approval.programme_id == p.programme_id,
+                Approval.academic_year == "2026-27"
+            ).first()
+            intake = appr.approved_intake if appr else 0
+            enrolled_count = db.query(Enrolment).filter(
+                Enrolment.programme_id == p.programme_id,
+                Enrolment.enrolment_status == "ACTIVE"
+            ).count()
+            progs.append({
+                "programme_id": p.programme_id,
+                "name": p.programme_name,
+                "approved_intake": intake,
+                "enrolled_count": enrolled_count
+            })
+        output.append({
+            "institution_id": inst.institution_id,
+            "pid": inst.pid,
+            "name": inst.name,
+            "state": inst.state,
+            "programmes": progs
+        })
+    return output
+
+@app.get(f"{settings.API_V1_STR}/audit/chain")
+def get_audit_chain(limit: int = 10, db: Session = Depends(get_db)):
+    """Fetches the latest tamper-evident audit blocks with SHA-256 links."""
+    logs = db.query(AuditLog).order_by(AuditLog.log_id.desc()).limit(limit).all()
+    return logs
+
+# ----------------- REGULATORY & VALIDATION ENDPOINTS -----------------
+
 @app.get(f"{settings.API_V1_STR}/rules")
 def get_regulatory_rules(academic_year: str = "2026-27", db: Session = Depends(get_db)):
-    """Fetch active AICTE regulatory rules and thresholds."""
     rules = db.query(RegulatoryRule).filter(RegulatoryRule.is_active == True).all()
     if not rules:
-        # Return current runtime active dictionary
         return RegulatoryRuleEngine.get_active_rules(db=db, academic_year=academic_year)
     return rules
-
-@app.post(f"{settings.API_V1_STR}/rules/update-parameter")
-def update_rule_parameter(payload: dict, db: Session = Depends(get_db)):
-    """
-    Allows an AICTE Administrator to update a rule parameter (e.g. NRI cap % or TFW %)
-    without modifying application code.
-    """
-    rule_code = payload.get("rule_code")
-    new_params = payload.get("parameters")
-    
-    rule = db.query(RegulatoryRule).filter(RegulatoryRule.rule_code == rule_code).first()
-    if not rule:
-        # Create new rule if it doesn't exist
-        rule = RegulatoryRule(
-            rule_code=rule_code,
-            clause_reference=payload.get("clause_reference", "AICTE Notification"),
-            rule_name=payload.get("rule_name", rule_code),
-            category_code=payload.get("category_code", "GENERAL"),
-            parameters_json=new_params,
-            violation_template="Threshold exceeded.",
-            recommendation_template="Review rule update."
-        )
-        db.add(rule)
-    else:
-        rule.parameters_json = new_params
-
-    db.commit()
-    db.refresh(rule)
-    return {
-        "status": "success",
-        "message": f"Rule {rule_code} parameters updated successfully.",
-        "rule": rule
-    }
 
 @app.post(f"{settings.API_V1_STR}/validation/apaar/verify")
 def verify_apaar(payload: dict):
@@ -116,7 +189,6 @@ def evaluate_compliance(payload: dict, db: Session = Depends(get_db)):
 @app.post(f"{settings.API_V1_STR}/seed-demo-data")
 def seed_demo_data(db: Session = Depends(get_db)):
     """Populates realistic demo institutions and configurable regulatory rules."""
-    # 1. Seed Dynamic Regulatory Rules if empty
     existing_rule = db.query(RegulatoryRule).first()
     if not existing_rule:
         rules_to_seed = [
@@ -167,7 +239,6 @@ def seed_demo_data(db: Session = Depends(get_db)):
         ]
         db.add_all(rules_to_seed)
 
-    # 2. Seed Institution
     existing_inst = db.query(Institution).filter(Institution.pid == "1-10293847").first()
     if not existing_inst:
         coep = Institution(
