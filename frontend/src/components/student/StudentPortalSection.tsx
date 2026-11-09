@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { 
-  QrCode, 
   ShieldCheck, 
   Download, 
   Share2, 
@@ -12,14 +11,20 @@ import {
   Building2, 
   Calendar,
   Lock,
-  FileCheck
+  FileCheck,
+  ExternalLink,
+  Maximize2
 } from "lucide-react";
+import Image from "next/image";
 
 export const StudentPortalSection: React.FC = () => {
   const { user } = useAuth();
   const [consentGranted, setConsentGranted] = useState(true);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [qrCodeDataUri, setQrCodeDataUri] = useState<string>("");
+  const [verificationUrl, setVerificationUrl] = useState<string>("");
 
   // Student specific mock/resolved record
   const studentData = {
@@ -38,8 +43,30 @@ export const StudentPortalSection: React.FC = () => {
     blockchain_hash: "0x8fa37c92b49e1029c81b23ad49b71e30948cba4726e6f79021",
   };
 
+  useEffect(() => {
+    async function loadQrCode() {
+      try {
+        const res = await fetch(`http://localhost:8000/api/v1/students/qr-code?apaar_id=${studentData.apaar_id}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.qr_code_base64) {
+            setQrCodeDataUri(json.qr_code_base64);
+          }
+          if (json.verification_url) {
+            setVerificationUrl(json.verification_url);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load dynamic QR code", err);
+      }
+    }
+    loadQrCode();
+  }, [studentData.apaar_id]);
+
+  const activeVerifyLink = verificationUrl || `http://localhost:3000/verify?apaar=${studentData.apaar_id}`;
+
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(`https://waymark.aicte.gov.in/verify/apaar/${studentData.apaar_id}`);
+    navigator.clipboard.writeText(activeVerifyLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -127,14 +154,36 @@ export const StudentPortalSection: React.FC = () => {
               </div>
             </div>
 
-            {/* Card Footer with QR */}
+            {/* Card Footer with Functional Scannable QR */}
             <div className="flex items-center justify-between pt-3 border-t border-blue-900/60">
               <div className="space-y-0.5 text-[11px] text-slate-400">
                 <div>Roll No: <span className="text-slate-200 font-medium">{studentData.roll_number}</span></div>
                 <div>ABC ID: <span className="text-slate-200 font-mono text-[10px]">{studentData.abc_account_id}</span></div>
+                <div className="text-[9px] text-blue-300/80 pt-0.5">Scan to verify credentials</div>
               </div>
-              <div className="w-12 h-12 bg-white p-1 rounded-lg flex items-center justify-center shadow">
-                <QrCode className="w-full h-full text-slate-900" />
+              
+              <div 
+                onClick={() => setShowQrModal(true)}
+                title="Click to Enlarge QR Code for Scanning"
+                className="w-16 h-16 bg-white p-1 rounded-xl flex items-center justify-center shadow-lg border-2 border-blue-400/50 cursor-pointer hover:scale-105 transition group relative"
+              >
+                {qrCodeDataUri ? (
+                  <Image
+                    src={qrCodeDataUri}
+                    alt="AICTE APAAR Verification QR Code"
+                    width={64}
+                    height={64}
+                    className="w-full h-full object-contain"
+                    unoptimized
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-slate-100 animate-pulse text-[9px] text-slate-500 text-center font-mono">
+                    QR
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-blue-950/20 opacity-0 group-hover:opacity-100 rounded-xl flex items-center justify-center transition">
+                  <Maximize2 className="w-4 h-4 text-blue-900" />
+                </div>
               </div>
             </div>
           </div>
@@ -253,6 +302,72 @@ export const StudentPortalSection: React.FC = () => {
         </div>
       </div>
 
+      {/* High-Resolution QR Scan Modal */}
+      {showQrModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-slate-200 text-center space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="text-left">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 block">
+                  AICTE Quick Response Verification
+                </span>
+                <h3 className="font-bold text-sm text-slate-900">
+                  Scan to View Verified Credentials
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowQrModal(false)}
+                className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col items-center">
+              <div className="w-56 h-56 bg-white p-3 rounded-2xl shadow-inner border border-slate-200 flex items-center justify-center">
+                {qrCodeDataUri ? (
+                  <Image
+                    src={qrCodeDataUri}
+                    alt="High Resolution AICTE APAAR QR"
+                    width={220}
+                    height={220}
+                    className="w-full h-full object-contain"
+                    unoptimized
+                  />
+                ) : (
+                  <div className="text-xs text-slate-400 animate-pulse">Generating QR...</div>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-3 font-medium">
+                Point any mobile camera, Google Lens, or QR scanner app at the code.
+              </p>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-left text-xs space-y-1">
+              <div className="font-semibold text-blue-900">Direct Verification Link:</div>
+              <a
+                href={activeVerifyLink}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] font-mono text-blue-600 hover:text-blue-800 break-all flex items-center gap-1"
+              >
+                <span>{activeVerifyLink}</span>
+                <ExternalLink className="w-3 h-3 shrink-0" />
+              </a>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => setShowQrModal(false)}
+                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-sm transition"
+              >
+                Close Scanner View
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Share Credential Modal */}
       {showShareModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
@@ -264,7 +379,7 @@ export const StudentPortalSection: React.FC = () => {
             <div className="flex items-center gap-2 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
               <input
                 readOnly
-                value={`https://waymark.aicte.gov.in/verify/apaar/${studentData.apaar_id}`}
+                value={activeVerifyLink}
                 className="bg-transparent text-xs text-slate-700 w-full outline-none font-mono"
               />
               <button
