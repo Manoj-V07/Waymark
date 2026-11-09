@@ -139,3 +139,4 @@ def test_module12_audit_ledger_chain_integrity():
     assert data["total_blocks_checked"] >= 1
     assert len(data["tampered_blocks"]) == 0
     assert "zero tampering detected" in data["message"].lower()
+
