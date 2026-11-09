@@ -12,6 +12,7 @@ import {
   Sparkles,
   GraduationCap,
   FileCheck2,
+  Database,
   LogOut,
   UserCheck,
   ChevronDown
@@ -79,6 +80,13 @@ export function Sidebar({ activeTab, setActiveTab, onOpenAuthModal }: SidebarPro
       description: "EoA approvals vs enrolled",
       icon: Building2,
       roles: ["AICTE_HQ"] as UserRole[],
+    },
+    {
+      id: "repository" as TabType,
+      label: "Student Ledger",
+      description: "Central repository queries",
+      icon: Database,
+      roles: ["AICTE_HQ", "INSTITUTION_NODAL"] as UserRole[],
     },
     {
       id: "student_portal" as TabType,

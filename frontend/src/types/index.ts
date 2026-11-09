@@ -120,4 +120,72 @@ export interface AuthState {
   isAuthenticated: boolean;
 }
 
-export type TabType = "overview" | "upload" | "compliance" | "anomalies" | "disputes" | "validator" | "institutions" | "student_portal" | "verifier_portal";
+export type TabType = 
+  | "overview" 
+  | "upload" 
+  | "compliance" 
+  | "anomalies" 
+  | "disputes" 
+  | "validator" 
+  | "institutions" 
+  | "repository"
+  | "student_portal" 
+  | "verifier_portal";
+
+export interface NationalMacroMetrics {
+  reporting_institutions: number;
+  total_registered_institutions: number;
+  total_approved_intake: number;
+  total_enrolled_students: number;
+  active_enrolments: number;
+  verified_apaar_count: number;
+  pending_apaar_count: number;
+  alt_id_count: number;
+  apaar_saturation_pct: number;
+  open_regulatory_cases: number;
+  resolved_regulatory_cases: number;
+  indicative_penalty_exposure_inr: number;
+  national_compliance_rate_pct: number;
+}
+
+export interface RegionalHeatMapEntry {
+  state: string;
+  regional_office: string;
+  institutions_count: number;
+  approved_intake: number;
+  enrolled_count: number;
+  intake_utilization_pct: number;
+  regulatory_cases_count: number;
+  risk_status: "COMPLIANT" | "MODERATE" | "HIGH_FLAG";
+}
+
+export interface InstitutionalRiskScore {
+  institution_id: string;
+  pid: string;
+  name: string;
+  state: string;
+  institution_type: string;
+  open_cases_count: number;
+  total_cases_count: number;
+  risk_score: number;
+  risk_tier: "LOW" | "MEDIUM" | "HIGH";
+  recommendation: string;
+}
+
+export interface StudentLedgerRecord {
+  enrolment_id: string;
+  student_id: string;
+  full_name: string;
+  dob: string;
+  gender: string;
+  identity_status: string;
+  apaar_masked: string;
+  roll_number: string;
+  programme_name: string;
+  level: string;
+  institution_name: string;
+  academic_year: string;
+  current_year_of_study: number;
+  enrolment_status: "ACTIVE" | "WITHDRAWN" | "TRANSFERRED" | "SUSPENDED" | "COMPLETED" | "PROVISIONAL";
+  enrolment_date: string;
+}

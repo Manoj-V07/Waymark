@@ -9,6 +9,7 @@ import { AnomaliesSection } from "@/components/anomalies/AnomaliesSection";
 import { DisputesSection } from "@/components/disputes/DisputesSection";
 import { ValidatorSection } from "@/components/validator/ValidatorSection";
 import { InstitutionsSection } from "@/components/institutions/InstitutionsSection";
+import { RepositorySection } from "@/components/repository/RepositorySection";
 import { StudentPortalSection } from "@/components/student/StudentPortalSection";
 import { VerifierPortalSection } from "@/components/verifier/VerifierPortalSection";
 import { AuthModal } from "@/components/auth/AuthModal";
@@ -170,6 +171,8 @@ export default function HomePage() {
           {activeTab === "institutions" && (
             <InstitutionsSection institutions={institutions} />
           )}
+
+          {activeTab === "repository" && <RepositorySection />}
 
           {activeTab === "student_portal" && <StudentPortalSection />}
 

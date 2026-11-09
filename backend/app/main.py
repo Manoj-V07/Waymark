@@ -27,6 +27,8 @@ from app.services.apaar_validator import APAARValidator
 from app.services.duplicate_detector import DuplicateAnomalyDetector
 from app.services.ingestion_parser import IngestionParser
 from app.services.ingestion_service import AdmissionIngestionService
+from app.services.analytics_service import AnalyticsService
+from app.services.student_repository_service import StudentRepositoryService
 
 Base.metadata.create_all(bind=engine)
 
@@ -750,6 +752,70 @@ def record_officer_decision(case_id: str, req: OfficerDecisionRequest, db: Sessi
         "audit_hash": curr_hash,
         "case": case
     }
+
+# =========================================================================
+# MODULE 8: CENTRAL STUDENT REPOSITORY & STATE LEDGER
+# =========================================================================
+
+@app.get(f"{settings.API_V1_STR}/students")
+def get_students(
+    institution_id: Optional[str] = None,
+    programme_id: Optional[str] = None,
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    """Module 8: Authoritative query interface for student academic records."""
+    return StudentRepositoryService.query_students(
+        db,
+        institution_id=institution_id,
+        programme_id=programme_id,
+        search_query=search,
+        status=status,
+        limit=limit,
+        offset=offset
+    )
+
+@app.post(f"{settings.API_V1_STR}/students/{{enrolment_id}}/transition-status")
+def transition_student_status(
+    enrolment_id: str,
+    payload: EnrolmentStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["AICTE_HQ", "INSTITUTION_NODAL"]))
+):
+    """Transitions student enrolment state (e.g. WITHDRAWN, TRANSFERRED) with SHA-256 ledger proof."""
+    try:
+        actor_name = current_user.full_name or current_user.email
+        return StudentRepositoryService.transition_enrolment_status(
+            db,
+            enrolment_id=enrolment_id,
+            new_status=payload.new_status,
+            reason=payload.reason,
+            actor_id=actor_name
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# =========================================================================
+# MODULE 9: MULTI-STAKEHOLDER DASHBOARDS & ANALYTICS
+# =========================================================================
+
+@app.get(f"{settings.API_V1_STR}/analytics/macro-metrics")
+def get_macro_analytics(db: Session = Depends(get_db)):
+    """Module 9: National overview metrics, approved vs enrolled capacity, and APAAR saturation."""
+    return AnalyticsService.get_national_macro_metrics(db)
+
+@app.get(f"{settings.API_V1_STR}/analytics/regional-heatmap")
+def get_regional_heatmap(db: Session = Depends(get_db)):
+    """Module 9: State and Regional Office (WRO, SRO, NRO, etc.) intake utilization and risk status."""
+    return AnalyticsService.get_regional_heat_map(db)
+
+@app.get(f"{settings.API_V1_STR}/analytics/institutional-risk-scores")
+def get_institutional_risk_scores(limit: int = 10, db: Session = Depends(get_db)):
+    """Module 9: Institutional Compliance Risk Index ranking based on unaddressed flags and intake overages."""
+    return AnalyticsService.get_institutional_risk_scoring(db, limit=limit)
 
 # =========================================================================
 # MODULE 5 & SYSTEM HELPERS
