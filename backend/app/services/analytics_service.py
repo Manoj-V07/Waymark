@@ -178,3 +178,4 @@ class AnalyticsService:
 
         risk_list.sort(key=lambda x: x["risk_score"], reverse=True)
         return risk_list[:limit]
+

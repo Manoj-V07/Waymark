@@ -18,7 +18,8 @@ from app.models.entities import (
 from app.schemas.admission import (
     LoginRequest, RegisterRequest, InstitutionCreate, ProgrammeCreate, ApprovalCreate,
     SingleStudentEnrolRequest, EnrolmentStatusUpdate, IdentityCorrectionRequest,
-    OpenCaseRequest, InstitutionCaseResponse, OfficerDecisionRequest
+    OpenCaseRequest, InstitutionCaseResponse, OfficerDecisionRequest,
+    CreateConsentRequest, UpdateConsentStatusRequest, VerifierQueryRequest
 )
 from app.core.security import get_password_hash, verify_password, create_access_token, calculate_sha256_hash
 from app.core.auth_guard import get_current_user, require_roles
@@ -29,6 +30,7 @@ from app.services.ingestion_parser import IngestionParser
 from app.services.ingestion_service import AdmissionIngestionService
 from app.services.analytics_service import AnalyticsService
 from app.services.student_repository_service import StudentRepositoryService
+from app.services.verification_audit_engine import VerificationAuditEngine
 
 Base.metadata.create_all(bind=engine)
 
@@ -816,6 +818,77 @@ def get_regional_heatmap(db: Session = Depends(get_db)):
 def get_institutional_risk_scores(limit: int = 10, db: Session = Depends(get_db)):
     """Module 9: Institutional Compliance Risk Index ranking based on unaddressed flags and intake overages."""
     return AnalyticsService.get_institutional_risk_scoring(db, limit=limit)
+
+# =========================================================================
+# MODULE 11: DPDP-COMPLIANT CONSENT & VERIFICATION ENGINE
+# =========================================================================
+
+@app.post(f"{settings.API_V1_STR}/dpdp/consents")
+def create_dpdp_consent(
+    payload: CreateConsentRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["STUDENT", "AICTE_HQ"]))
+):
+    """Module 11: Registers student granular, purpose-bound DPDP consent."""
+    try:
+        # Default or derived student id
+        student_id = current_user.user_id if current_user.role == "STUDENT" else "std-slice3-test-01"
+        return VerificationAuditEngine.create_student_consent(
+            db,
+            student_id=student_id,
+            verifier_id=payload.verifier_id,
+            purpose=payload.purpose,
+            scope_fields=payload.scope_fields,
+            expires_in_hours=payload.expires_in_hours
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get(f"{settings.API_V1_STR}/dpdp/consents/my-consents")
+def get_my_consents(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["STUDENT", "AICTE_HQ"]))
+):
+    """Module 11: Lists student active and expired consent records."""
+    student_id = current_user.user_id if current_user.role == "STUDENT" else "std-slice3-test-01"
+    return VerificationAuditEngine.list_student_consents(db, student_id=student_id)
+
+@app.post(f"{settings.API_V1_STR}/dpdp/consents/{{consent_id}}/revoke")
+def revoke_dpdp_consent(
+    consent_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["STUDENT", "AICTE_HQ"]))
+):
+    """Module 11: Revokes an active consent under DPDP Section 6(4)."""
+    try:
+        student_id = current_user.user_id if current_user.role == "STUDENT" else "std-slice3-test-01"
+        return VerificationAuditEngine.revoke_student_consent(db, consent_id=consent_id, student_id=student_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post(f"{settings.API_V1_STR}/dpdp/verify")
+def verify_candidate_credentials(
+    payload: VerifierQueryRequest,
+    db: Session = Depends(get_db)
+):
+    """Module 11 & 12: Executes cryptographic verifier query with field-level redaction and QR URL."""
+    return VerificationAuditEngine.execute_dpdp_verification(
+        db,
+        apaar_id=payload.apaar_id,
+        full_name=payload.full_name,
+        dob_str=payload.date_of_birth,
+        verifier_id=payload.verifier_id,
+        purpose=payload.purpose
+    )
+
+# =========================================================================
+# MODULE 12: DIGITAL CREDENTIALS, QR & TAMPER-EVIDENT AUDIT LEDGER
+# =========================================================================
+
+@app.get(f"{settings.API_V1_STR}/audit/ledger/verify-chain")
+def verify_entire_audit_ledger(db: Session = Depends(get_db)):
+    """Module 12: Cryptographically verifies the linear SHA-256 chain and checks for block tampering."""
+    return VerificationAuditEngine.audit_entire_chain_integrity(db)
 
 # =========================================================================
 # MODULE 5 & SYSTEM HELPERS

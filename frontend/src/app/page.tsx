@@ -10,6 +10,7 @@ import { DisputesSection } from "@/components/disputes/DisputesSection";
 import { ValidatorSection } from "@/components/validator/ValidatorSection";
 import { InstitutionsSection } from "@/components/institutions/InstitutionsSection";
 import { RepositorySection } from "@/components/repository/RepositorySection";
+import { AuditLedgerSection } from "@/components/audit/AuditLedgerSection";
 import { StudentPortalSection } from "@/components/student/StudentPortalSection";
 import { VerifierPortalSection } from "@/components/verifier/VerifierPortalSection";
 import { AuthModal } from "@/components/auth/AuthModal";
@@ -173,6 +174,8 @@ export default function HomePage() {
           )}
 
           {activeTab === "repository" && <RepositorySection />}
+
+          {activeTab === "audit_ledger" && <AuditLedgerSection />}
 
           {activeTab === "student_portal" && <StudentPortalSection />}
 

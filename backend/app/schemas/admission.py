@@ -93,3 +93,28 @@ class OfficerDecisionRequest(BaseModel):
     decision: str = Field(..., example="EXEMPTED_MERIT")
     remarks: str
     officer_name: str = "Regional Review Officer"
+
+# ----------------- MODULE 11 & 12: DPDP CONSENT & VERIFICATION SCHEMAS -----------------
+class CreateConsentRequest(BaseModel):
+    verifier_id: str = Field(..., example="hr@tcs.com")
+    purpose: str = Field(..., example="PRE_EMPLOYMENT_BACKGROUND_CHECK")
+    scope_fields: List[str] = Field(default=["full_name", "institution", "programme", "enrolment_status", "credits_earned"])
+    expires_in_hours: int = 48
+
+class UpdateConsentStatusRequest(BaseModel):
+    status: str = Field(..., example="REVOKED") # 'GRANTED', 'REVOKED'
+
+class VerifierQueryRequest(BaseModel):
+    apaar_id: str = Field(..., example="9021-4412-8873")
+    full_name: str = Field(..., example="Aarav Sharma")
+    date_of_birth: str = Field(..., example="2005-04-12")
+    verifier_id: str = Field(..., example="hr@tcs.com")
+    purpose: str = Field(..., example="PRE_EMPLOYMENT_BACKGROUND_CHECK")
+
+class AuditLedgerVerificationResult(BaseModel):
+    total_blocks_checked: int
+    is_chain_valid: boolean if False else bool
+    genesis_hash: str
+    latest_hash: str
+    tampered_blocks: List[int]
+    message: str

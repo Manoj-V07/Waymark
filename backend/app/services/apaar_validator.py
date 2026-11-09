@@ -53,6 +53,13 @@ class APAARValidator:
         return c == 0
 
     @classmethod
+    def mask_apaar(cls, apaar_id: str) -> str:
+        """Masks APAAR ID exposing only the last 4 digits (e.g. XXXX-XXXX-8873)."""
+        clean = str(apaar_id).replace(" ", "").replace("-", "").strip()
+        last_four = clean[-4:] if len(clean) >= 4 else "XXXX"
+        return f"XXXX-XXXX-{last_four}"
+
+    @classmethod
     def verify_against_registry(cls, apaar_id: str, name: str, dob: str) -> Dict[str, Any]:
         """
         Mock Adapter testing against central APAAR repository.

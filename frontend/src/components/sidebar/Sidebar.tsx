@@ -13,6 +13,7 @@ import {
   GraduationCap,
   FileCheck2,
   Database,
+  Layers,
   LogOut,
   UserCheck,
   ChevronDown
@@ -87,6 +88,13 @@ export function Sidebar({ activeTab, setActiveTab, onOpenAuthModal }: SidebarPro
       description: "Central repository queries",
       icon: Database,
       roles: ["AICTE_HQ", "INSTITUTION_NODAL"] as UserRole[],
+    },
+    {
+      id: "audit_ledger" as TabType,
+      label: "Audit Ledger",
+      description: "SHA-256 linear chain",
+      icon: Layers,
+      roles: ["AICTE_HQ"] as UserRole[],
     },
     {
       id: "student_portal" as TabType,

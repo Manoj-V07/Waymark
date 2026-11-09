@@ -129,8 +129,31 @@ export type TabType =
   | "validator" 
   | "institutions" 
   | "repository"
+  | "audit_ledger"
   | "student_portal" 
   | "verifier_portal";
+
+export interface AuditChainVerification {
+  total_blocks_checked: number;
+  is_chain_valid: boolean;
+  genesis_hash: string;
+  latest_hash: string;
+  tampered_blocks: number[];
+  message: string;
+}
+
+export interface AuditBlock {
+  log_id: number;
+  timestamp: string;
+  actor_id: string;
+  actor_role: string;
+  action: string;
+  resource_type: string;
+  resource_id: string;
+  details_json: Record<string, unknown> | string | null;
+  previous_block_hash: string;
+  current_block_hash: string;
+}
 
 export interface NationalMacroMetrics {
   reporting_institutions: number;
