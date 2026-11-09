@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { getApiBaseUrl } from "@/lib/api";
 import { 
   ShieldCheck, 
   CheckCircle2, 
@@ -49,7 +50,8 @@ function VerifyContent() {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`http://localhost:8000/api/v1/students/verify-credentials?apaar_id=${encodeURIComponent(rawApaar)}`);
+        const baseUrl = getApiBaseUrl();
+        const res = await fetch(`${baseUrl}/api/v1/students/verify-credentials?apaar_id=${encodeURIComponent(rawApaar)}`);
         if (!res.ok) {
           throw new Error("Unable to retrieve student record from central academic directory.");
         }
