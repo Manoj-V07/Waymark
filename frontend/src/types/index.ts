@@ -103,4 +103,21 @@ export interface AnomalyDetectionResult {
   matches: AnomalyMatch[];
 }
 
-export type TabType = "overview" | "upload" | "compliance" | "anomalies" | "disputes" | "validator" | "institutions";
+export type UserRole = "AICTE_HQ" | "INSTITUTION_NODAL" | "STUDENT" | "VERIFIER";
+
+export interface UserProfile {
+  user_id: string;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  institution_id?: string;
+  is_active: boolean;
+}
+
+export interface AuthState {
+  user: UserProfile | null;
+  token: string | null;
+  isAuthenticated: boolean;
+}
+
+export type TabType = "overview" | "upload" | "compliance" | "anomalies" | "disputes" | "validator" | "institutions" | "student_portal" | "verifier_portal";

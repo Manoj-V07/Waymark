@@ -2,11 +2,29 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import date
 
-# ----------------- MODULE 1 SCHEMAS -----------------
+# ----------------- AUTHENTICATION & RBAC SCHEMAS -----------------
 class LoginRequest(BaseModel):
     email: str = Field(..., example="nodal@coep.ac.in")
     password: str
 
+class RegisterRequest(BaseModel):
+    email: str = Field(..., example="registrar@vjti.ac.in")
+    password: str = Field(..., example="SecurePassword@2026")
+    full_name: str = Field(..., example="Dr. Ananya Deshmukh")
+    role: str = Field(..., example="INSTITUTION_NODAL") # 'AICTE_HQ', 'INSTITUTION_NODAL', 'STUDENT', 'VERIFIER'
+    institution_id: Optional[str] = None
+    institution_pid: Optional[str] = None
+
+class UserResponse(BaseModel):
+    user_id: str
+    email: str
+    full_name: str
+    role: str
+    institution_id: Optional[str] = None
+    institution_name: Optional[str] = None
+    institution_pid: Optional[str] = None
+
+# ----------------- MODULE 1 SCHEMAS -----------------
 class InstitutionCreate(BaseModel):
     pid: str = Field(..., example="1-10293847")
     name: str = Field(..., example="College of Engineering Pune")
@@ -72,6 +90,6 @@ class InstitutionCaseResponse(BaseModel):
     supporting_doc_ref: str
 
 class OfficerDecisionRequest(BaseModel):
-    decision: str = Field(..., example="EXEMPTED_MERIT") # 'EXEMPTED_MERIT', 'INTAKE_ADJUSTED', 'PENALTY_CONFIRMED'
+    decision: str = Field(..., example="EXEMPTED_MERIT")
     remarks: str
     officer_name: str = "Regional Review Officer"

@@ -16,11 +16,12 @@ from app.models.entities import (
     AdmissionDetail, RegulatoryCase
 )
 from app.schemas.admission import (
-    LoginRequest, InstitutionCreate, ProgrammeCreate, ApprovalCreate,
+    LoginRequest, RegisterRequest, InstitutionCreate, ProgrammeCreate, ApprovalCreate,
     SingleStudentEnrolRequest, EnrolmentStatusUpdate, IdentityCorrectionRequest,
     OpenCaseRequest, InstitutionCaseResponse, OfficerDecisionRequest
 )
 from app.core.security import get_password_hash, verify_password, create_access_token, calculate_sha256_hash
+from app.core.auth_guard import get_current_user, require_roles
 from app.services.regulatory_engine import RegulatoryRuleEngine
 from app.services.apaar_validator import APAARValidator
 from app.services.duplicate_detector import DuplicateAnomalyDetector
@@ -81,6 +82,9 @@ def user_login(req: LoginRequest, db: Session = Depends(get_db)):
             detail="Invalid email or password."
         )
     
+    inst_name = user.institution.name if user.institution else None
+    inst_pid = user.institution.pid if user.institution else None
+
     token = create_access_token({
         "sub": user.user_id,
         "email": user.email,
@@ -95,8 +99,70 @@ def user_login(req: LoginRequest, db: Session = Depends(get_db)):
             "email": user.email,
             "full_name": user.full_name,
             "role": user.role,
-            "institution_id": user.institution_id
+            "institution_id": user.institution_id,
+            "institution_name": inst_name,
+            "institution_pid": inst_pid
         }
+    }
+
+@app.post(f"{settings.API_V1_STR}/auth/register")
+def user_register(req: RegisterRequest, db: Session = Depends(get_db)):
+    """Registers a new user (Institution Registrar, Student, or Verifier) with designated role."""
+    existing = db.query(User).filter(User.email == req.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Email {req.email} is already registered.")
+
+    # Validate institution if nodal role
+    inst_id = req.institution_id
+    if req.role == "INSTITUTION_NODAL" and req.institution_pid and not inst_id:
+        inst = db.query(Institution).filter(Institution.pid == req.institution_pid).first()
+        if inst:
+            inst_id = inst.institution_id
+
+    new_user = User(
+        email=req.email,
+        hashed_password=get_password_hash(req.password),
+        full_name=req.full_name,
+        role=req.role.upper(),
+        institution_id=inst_id,
+        is_active=True
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    token = create_access_token({
+        "sub": new_user.user_id,
+        "email": new_user.email,
+        "role": new_user.role,
+        "institution_id": new_user.institution_id
+    })
+    return {
+        "status": "success",
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "user_id": new_user.user_id,
+            "email": new_user.email,
+            "full_name": new_user.full_name,
+            "role": new_user.role,
+            "institution_id": new_user.institution_id
+        }
+    }
+
+@app.get(f"{settings.API_V1_STR}/auth/me")
+def get_current_profile(current_user: User = Depends(get_current_user)):
+    """Returns the authenticated user profile and permissions."""
+    inst_name = current_user.institution.name if current_user.institution else None
+    inst_pid = current_user.institution.pid if current_user.institution else None
+    return {
+        "user_id": current_user.user_id,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "role": current_user.role,
+        "institution_id": current_user.institution_id,
+        "institution_name": inst_name,
+        "institution_pid": inst_pid
     }
 
 @app.post(f"{settings.API_V1_STR}/institutions")
