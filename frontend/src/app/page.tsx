@@ -42,20 +42,27 @@ export default function HomePage() {
   const loadInstitutions = async () => {
     try {
       const res = await fetch("http://localhost:8000/api/v1/institutions/active");
+      if (!res.ok) throw new Error("Backend offline");
       const data = await res.json();
-      setInstitutions(data);
-      if (data.length > 0) {
-        setSelectedInstId(data[0].institution_id);
-        if (data[0].programmes.length > 0) {
-          setSelectedProgId(data[0].programmes[0].programme_id);
+      if (Array.isArray(data) && data.length > 0) {
+        setInstitutions(data);
+        // Only set default if currently empty or not in data
+        if (!selectedInstId || !data.some((i: ActiveInstitution) => i.institution_id === selectedInstId)) {
+          setSelectedInstId(data[0].institution_id);
+          if (data[0].programmes && data[0].programmes.length > 0) {
+            setSelectedProgId(data[0].programmes[0].programme_id);
+          }
         }
+      } else {
+        throw new Error("No institutions returned");
       }
     } catch {
-      setInstitutions([
+      // Robust multi-institution fallback for demo/offline
+      const fallbackData: ActiveInstitution[] = [
         {
           institution_id: "inst_ai_0042",
           pid: "1-10293847",
-          name: "College of Engineering Pune",
+          name: "College of Engineering Pune (COEP)",
           state: "Maharashtra",
           programmes: [
             {
@@ -64,14 +71,40 @@ export default function HomePage() {
               approved_intake: 120,
               enrolled_count: 4,
             },
+            {
+              programme_id: "prog_me_02",
+              name: "Mechanical Engineering",
+              approved_intake: 60,
+              enrolled_count: 1,
+            },
           ],
         },
-      ]);
+        {
+          institution_id: "inst_ai_0043",
+          pid: "1-20938491",
+          name: "Veermata Jijabai Technological Institute (VJTI)",
+          state: "Maharashtra",
+          programmes: [
+            {
+              programme_id: "prog_it_03",
+              name: "Information Technology",
+              approved_intake: 60,
+              enrolled_count: 0,
+            },
+          ],
+        },
+      ];
+      setInstitutions(fallbackData);
+      if (!selectedInstId) {
+        setSelectedInstId(fallbackData[0].institution_id);
+        setSelectedProgId(fallbackData[0].programmes[0].programme_id);
+      }
     }
   };
 
   useEffect(() => {
     loadInstitutions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -170,7 +203,7 @@ export default function HomePage() {
           {activeTab === "validator" && <ValidatorSection />}
 
           {activeTab === "institutions" && (
-            <InstitutionsSection institutions={institutions} />
+            <InstitutionsSection institutions={institutions} onRefresh={loadInstitutions} />
           )}
 
           {activeTab === "repository" && <RepositorySection />}

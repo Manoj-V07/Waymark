@@ -170,7 +170,12 @@ def get_current_profile(current_user: User = Depends(get_current_user)):
     }
 
 @app.post(f"{settings.API_V1_STR}/institutions")
-def create_institution(req: InstitutionCreate, db: Session = Depends(get_db)):
+def create_institution(
+    req: InstitutionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["AICTE_HQ"]))
+):
+    """Module 1: AICTE Approval Bureau endpoint to register a newly approved institution."""
     existing = db.query(Institution).filter(Institution.pid == req.pid).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"Institution with PID {req.pid} already exists.")
@@ -186,9 +191,52 @@ def create_institution(req: InstitutionCreate, db: Session = Depends(get_db)):
         status="ACTIVE"
     )
     db.add(inst)
+    db.flush()
+
+    # Create default inaugural programme & approval so it appears in student upload selections immediately
+    p = Programme(
+        institution_id=inst.institution_id,
+        programme_name="General Engineering & Applied Sciences",
+        level="UG",
+        duration_years=4,
+        is_active=True
+    )
+    db.add(p)
+    db.flush()
+
+    appr = Approval(
+        programme_id=p.programme_id,
+        academic_year="2026-27",
+        eoa_reference_number=f"AICTE/{req.regional_office}/{req.pid}/2026/EOA-INIT",
+        approved_intake=60,
+        is_supernumerary_eligible=True
+    )
+    db.add(appr)
+    db.flush()
+
+    seat_caps = [
+        SeatApproval(approval_id=appr.approval_id, category_code="NRI", approved_seats=3, is_above_intake=False),
+        SeatApproval(approval_id=appr.approval_id, category_code="FN_OCI_CIWG", approved_seats=9, is_above_intake=True),
+        SeatApproval(approval_id=appr.approval_id, category_code="TFW", approved_seats=3, is_above_intake=True)
+    ]
+    db.add_all(seat_caps)
     db.commit()
     db.refresh(inst)
     return inst
+
+@app.delete(f"{settings.API_V1_STR}/institutions/{{institution_id}}")
+def deactivate_institution(
+    institution_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["AICTE_HQ"]))
+):
+    """Module 1: Archives / Deactivates an institution (APH Clause 7.3c No-Admission Status)."""
+    inst = db.query(Institution).filter(Institution.institution_id == institution_id).first()
+    if not inst:
+        raise HTTPException(status_code=404, detail="Institution not found.")
+    inst.status = "NO_ADMISSION" if inst.status == "ACTIVE" else "CLOSED"
+    db.commit()
+    return {"status": "success", "message": f"Institution {inst.name} set to status: {inst.status}"}
 
 @app.get(f"{settings.API_V1_STR}/institutions/{{institution_id}}/eoa")
 def get_institution_eoa_details(institution_id: str, academic_year: str = "2026-27", db: Session = Depends(get_db)):

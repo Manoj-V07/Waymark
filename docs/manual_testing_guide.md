@@ -311,3 +311,4 @@ Below is the comprehensive test catalog categorized by vertical operational doma
 | **National Analytics & Heatmap** | `backend/app/services/analytics_service.py` | `backend/tests/test_slice3_analytics_repository.py` |
 | **DPDP Consent & Verification** | `backend/app/services/verification_audit_engine.py` | `backend/tests/test_slice4_dpdp_audit.py` |
 | **SHA-256 Audit Chain & Auditor** | `backend/app/services/verification_audit_engine.py` | `backend/tests/test_slice4_dpdp_audit.py` |
+
