@@ -212,3 +212,42 @@ export interface StudentLedgerRecord {
   enrolment_status: "ACTIVE" | "WITHDRAWN" | "TRANSFERRED" | "SUSPENDED" | "COMPLETED" | "PROVISIONAL";
   enrolment_date: string;
 }
+
+export interface InstitutionProgrammeDetail {
+  programme_id: string;
+  name: string;
+  level: string;
+  duration_years: number;
+  is_active: boolean;
+  approved_intake: number;
+  active_enrolment: number;
+  eoa_ref: string;
+  seat_caps: Record<string, { seats: number; is_above_intake: boolean }>;
+}
+
+export interface InstitutionAuditRecord {
+  log_id: number;
+  timestamp: string;
+  actor_id: string;
+  actor_role: string;
+  action: string;
+  details: Record<string, unknown>;
+  block_hash: string;
+}
+
+export interface InstitutionDetailResponse {
+  institution_id: string;
+  pid: string;
+  name: string;
+  address: string;
+  state: string;
+  district: string;
+  regional_office: string;
+  institution_type: string;
+  status: "ACTIVE" | "UNDER_REVIEW" | "NO_ADMISSION" | "SUSPENDED" | "WITHDRAWN" | string;
+  created_at: string;
+  total_approved_intake: number;
+  total_active_enrolled: number;
+  programmes: InstitutionProgrammeDetail[];
+  audit_history: InstitutionAuditRecord[];
+}

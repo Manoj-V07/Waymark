@@ -34,10 +34,32 @@ class InstitutionCreate(BaseModel):
     regional_office: str = Field(..., example="WRO")
     institution_type: str = Field(..., example="GOVERNMENT")
 
+class InstitutionUpdate(BaseModel):
+    name: Optional[str] = None
+    address: Optional[str] = None
+    state: Optional[str] = None
+    district: Optional[str] = None
+    regional_office: Optional[str] = None
+    institution_type: Optional[str] = None
+    amendment_reason: str = Field(..., example="Statutory affiliation name change approved by AICTE Council.")
+
+class InstitutionStatusUpdate(BaseModel):
+    status: str = Field(..., example="UNDER_REVIEW") # 'ACTIVE', 'UNDER_REVIEW', 'NO_ADMISSION', 'SUSPENDED', 'WITHDRAWN'
+    reason: str = Field(..., example="Regulatory audit identified pending affiliation documentation under APH Clause 7.3(c).")
+
 class ProgrammeCreate(BaseModel):
     programme_name: str = Field(..., example="Mechanical Engineering")
     level: str = Field(..., example="UG")
     duration_years: int = 4
+    approved_intake: Optional[int] = 60
+    academic_year: Optional[str] = "2026-27"
+    seat_caps: Optional[Dict[str, int]] = Field(default={"NRI": 3, "FN_OCI_CIWG": 9, "TFW": 3})
+
+class ProgrammeIntakeUpdate(BaseModel):
+    academic_year: str = Field(default="2026-27", example="2026-27")
+    approved_intake: int = Field(..., example=120)
+    seat_caps: Optional[Dict[str, int]] = Field(default={"NRI": 6, "FN_OCI_CIWG": 18, "TFW": 6})
+    reason: str = Field(..., example="Council sanctioned intake enhancement under APH Chapter II.")
 
 class ApprovalCreate(BaseModel):
     academic_year: str = Field(..., example="2026-27")

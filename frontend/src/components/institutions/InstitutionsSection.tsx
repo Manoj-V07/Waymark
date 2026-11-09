@@ -5,12 +5,19 @@ import { ActiveInstitution } from "@/types";
 import { 
   Building2, 
   Plus, 
-  Ban, 
   CheckCircle2, 
   X, 
-  Building
+  Building,
+  Eye,
+  Edit,
+  ShieldAlert,
+  Search,
+  Filter
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { InstitutionDetailsModal } from "./InstitutionDetailsModal";
+import { EditInstitutionModal } from "./EditInstitutionModal";
+import { StatusLifecycleModal } from "./StatusLifecycleModal";
 
 interface InstitutionsSectionProps {
   institutions: ActiveInstitution[];
@@ -23,6 +30,15 @@ export function InstitutionsSection({ institutions, onRefresh }: InstitutionsSec
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Search & Filter state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedState, setSelectedState] = useState<string>("ALL");
+
+  // Detailed Modals state
+  const [viewDetailsId, setViewDetailsId] = useState<string | null>(null);
+  const [editingInstitution, setEditingInstitution] = useState<ActiveInstitution | null>(null);
+  const [lifecycleInstitution, setLifecycleInstitution] = useState<ActiveInstitution | null>(null);
+
   // Form states for adding institution
   const [pid, setPid] = useState("");
   const [name, setName] = useState("");
@@ -30,7 +46,9 @@ export function InstitutionsSection({ institutions, onRefresh }: InstitutionsSec
   const [state, setState] = useState("Maharashtra");
   const [district, setDistrict] = useState("");
   const [regionalOffice, setRegionalOffice] = useState("WRO");
-  const institutionType = "GOVERNMENT_AIDED";
+  const [institutionType, setInstitutionType] = useState("GOVERNMENT");
+
+  const isAicteHq = user?.role === "AICTE_HQ";
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,11 +64,11 @@ export function InstitutionsSection({ institutions, onRefresh }: InstitutionsSec
           "Authorization": `Bearer ${token}`
         },
         body: JSON.stringify({
-          pid,
-          name,
-          address,
-          state,
-          district: district || name,
+          pid: pid.trim(),
+          name: name.trim(),
+          address: address.trim(),
+          state: state.trim(),
+          district: district.trim() || name.trim(),
           regional_office: regionalOffice,
           institution_type: institutionType,
         }),
@@ -75,21 +93,17 @@ export function InstitutionsSection({ institutions, onRefresh }: InstitutionsSec
     }
   };
 
-  const handleDeactivate = async (institutionId: string, instName: string) => {
-    if (!confirm(`Are you sure you want to change approval status for ${instName}?`)) return;
-    try {
-      const token = localStorage.getItem("waymark_auth_token") || "";
-      const res = await fetch(`http://localhost:8000/api/v1/institutions/${institutionId}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      if (res.ok && onRefresh) {
-        onRefresh();
-      }
-    } catch (e) {
-      console.error("Deactivation error", e);
-    }
-  };
+  // Filtered institutions
+  const filteredInstitutions = institutions.filter((inst) => {
+    const matchesSearch = 
+      inst.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      inst.pid.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      inst.state.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesState = selectedState === "ALL" || inst.state === selectedState;
+    return matchesSearch && matchesState;
+  });
+
+  const uniqueStates = Array.from(new Set(institutions.map((i) => i.state))).filter(Boolean);
 
   return (
     <div className="space-y-6">
@@ -98,27 +112,55 @@ export function InstitutionsSection({ institutions, onRefresh }: InstitutionsSec
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-bold tracking-wider uppercase text-blue-900 bg-blue-100 px-2.5 py-0.5 rounded-full">
-              Module 1: Regulatory Master Roster
+              Module 1: Institution Master Management
             </span>
-            <span className="text-xs text-slate-400">• AICTE Extension of Approval (EoA) Store</span>
+            <span className="text-xs text-slate-400">• Regulatory Approval & Intake Repository</span>
           </div>
           <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
             Approved Institutions & Sanctioned Academic Intakes
           </h2>
           <p className="text-xs text-slate-500 max-w-2xl">
-            Central directory of participating universities and technical colleges. New AICTE approvals dynamically populate in all student ingestion and quota evaluation dropdowns.
+            Central repository of AICTE-approved institutions, academic programmes, and supernumerary quotas. Provides full lifecycle administration, intake modifications, and immutable audit logs.
           </p>
         </div>
 
-        {user?.role === "AICTE_HQ" && (
+        {isAicteHq && (
           <button
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition self-start"
           >
             <Plus className="w-4 h-4" />
-            Register Approved Institution
+            Register New Institution
           </button>
         )}
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
+        <div className="relative w-full md:w-96">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            placeholder="Search by Institution Name, PID, or State..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-blue-600 focus:outline-none"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <Filter className="w-4 h-4 text-slate-400" />
+          <select
+            value={selectedState}
+            onChange={(e) => setSelectedState(e.target.value)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 focus:outline-none"
+          >
+            <option value="ALL">All States / UTs ({uniqueStates.length})</option>
+            {uniqueStates.map((st) => (
+              <option key={st} value={st}>{st}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Main Table */}
@@ -126,7 +168,7 @@ export function InstitutionsSection({ institutions, onRefresh }: InstitutionsSec
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
           <div className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
             <Building2 className="w-4 h-4 text-blue-600" />
-            AICTE Approved Institutions Roster ({institutions.length} Institutions Registered)
+            AICTE Approved Institutions Roster ({filteredInstitutions.length} Institutions Displayed)
           </div>
           <span className="text-xs text-slate-500 font-mono">Academic Session 2026–27</span>
         </div>
@@ -140,55 +182,84 @@ export function InstitutionsSection({ institutions, onRefresh }: InstitutionsSec
                 <th className="py-3 px-4 text-right">Sanctioned Intake</th>
                 <th className="py-3 px-4 text-right">Active Enrolment</th>
                 <th className="py-3 px-4 text-center">Regulatory Status</th>
-                {user?.role === "AICTE_HQ" && <th className="py-3 px-4 text-right">Action</th>}
+                <th className="py-3 px-4 text-right">Administrative Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {institutions.map((inst) =>
-                inst.programmes.map((p, idx) => (
-                  <tr key={`${inst.institution_id}-${p.programme_id}`} className="hover:bg-slate-50/80 transition">
-                    <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-900">{inst.name}</div>
-                      <div className="text-[11px] text-slate-500 font-mono">
-                        PID: {inst.pid} • Jurisdiction: {inst.state}
-                      </div>
-                    </td>
+              {filteredInstitutions.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                    No approved institutions found matching query.
+                  </td>
+                </tr>
+              ) : (
+                filteredInstitutions.map((inst) =>
+                  inst.programmes.map((p, idx) => (
+                    <tr key={`${inst.institution_id}-${p.programme_id}`} className="hover:bg-slate-50/80 transition">
+                      <td className="py-3.5 px-4">
+                        <div className="font-bold text-slate-900">{inst.name}</div>
+                        <div className="text-[11px] text-slate-500 font-mono">
+                          PID: {inst.pid} • Jurisdiction: {inst.state}
+                        </div>
+                      </td>
 
-                    <td className="py-3.5 px-4">
-                      <div className="font-semibold text-slate-800">{p.name}</div>
-                      <div className="text-[10px] text-slate-400">Undergraduate 4-Year B.Tech / BE</div>
-                    </td>
+                      <td className="py-3.5 px-4">
+                        <div className="font-semibold text-slate-800">{p.name}</div>
+                        <div className="text-[10px] text-slate-400">Sanctioned Intake Division</div>
+                      </td>
 
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-800">
-                      {p.approved_intake} seats
-                    </td>
+                      <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-800">
+                        {p.approved_intake} seats
+                      </td>
 
-                    <td className="py-3.5 px-4 text-right font-mono font-semibold text-blue-700">
-                      {p.enrolled_count} admitted
-                    </td>
+                      <td className="py-3.5 px-4 text-right font-mono font-semibold text-blue-700">
+                        {p.enrolled_count} admitted
+                      </td>
 
-                    <td className="py-3.5 px-4 text-center">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center justify-center gap-1 w-fit mx-auto">
-                        <CheckCircle2 className="w-3 h-3" />
-                        AICTE Valid EoA
-                      </span>
-                    </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center justify-center gap-1 w-fit mx-auto">
+                          <CheckCircle2 className="w-3 h-3" />
+                          AICTE Approved
+                        </span>
+                      </td>
 
-                    {user?.role === "AICTE_HQ" && (
                       <td className="py-3.5 px-4 text-right">
                         {idx === 0 && (
-                          <button
-                            onClick={() => handleDeactivate(inst.institution_id, inst.name)}
-                            title="Set to No-Admission Status (APH Clause 7.3c)"
-                            className="p-1.5 text-slate-400 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition"
-                          >
-                            <Ban className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => setViewDetailsId(inst.institution_id)}
+                              title="View Institution Profile & Seat Caps"
+                              className="px-2 py-1 text-slate-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition font-semibold text-[11px] flex items-center gap-1"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              Details
+                            </button>
+
+                            {isAicteHq && (
+                              <>
+                                <button
+                                  onClick={() => setEditingInstitution(inst)}
+                                  title="Edit Institutional Information"
+                                  className="p-1.5 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+
+                                <button
+                                  onClick={() => setLifecycleInstitution(inst)}
+                                  title="Manage Status & Lifecycle (APH 7.3c)"
+                                  className="p-1.5 text-slate-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition"
+                                >
+                                  <ShieldAlert className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
+                          </div>
                         )}
                       </td>
-                    )}
-                  </tr>
-                ))
+                    </tr>
+                  ))
+                )
               )}
             </tbody>
           </table>
@@ -234,7 +305,7 @@ export function InstitutionsSection({ institutions, onRefresh }: InstitutionsSec
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Institution Name
+                  Institution Legal Name
                 </label>
                 <input
                   type="text"
@@ -288,6 +359,21 @@ export function InstitutionsSection({ institutions, onRefresh }: InstitutionsSec
                 </div>
               </div>
 
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Institution Classification</label>
+                <select
+                  value={institutionType}
+                  onChange={(e) => setInstitutionType(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                >
+                  <option value="GOVERNMENT">Government College / University</option>
+                  <option value="GOVERNMENT_AIDED">Government Aided Autonomous</option>
+                  <option value="PRIVATE_UNAIDED">Private / Self-Financing</option>
+                  <option value="DEEMED_UNIVERSITY">Deemed-to-be University</option>
+                  <option value="CENTRAL_UNIVERSITY">Central University</option>
+                </select>
+              </div>
+
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -307,6 +393,53 @@ export function InstitutionsSection({ institutions, onRefresh }: InstitutionsSec
             </form>
           </div>
         </div>
+      )}
+
+      {/* Details Modal */}
+      {viewDetailsId && (
+        <InstitutionDetailsModal
+          institutionId={viewDetailsId}
+          onClose={() => setViewDetailsId(null)}
+          isAicteHq={isAicteHq}
+          onProgrammeAdded={() => {
+            if (onRefresh) onRefresh();
+          }}
+          onIntakeUpdated={() => {
+            if (onRefresh) onRefresh();
+          }}
+        />
+      )}
+
+      {/* Edit Institution Modal */}
+      {editingInstitution && (
+        <EditInstitutionModal
+          institution={{
+            institution_id: editingInstitution.institution_id,
+            pid: editingInstitution.pid,
+            name: editingInstitution.name,
+            state: editingInstitution.state
+          }}
+          onClose={() => setEditingInstitution(null)}
+          onSuccess={() => {
+            if (onRefresh) onRefresh();
+          }}
+        />
+      )}
+
+      {/* Lifecycle Status Modal */}
+      {lifecycleInstitution && (
+        <StatusLifecycleModal
+          institution={{
+            institution_id: lifecycleInstitution.institution_id,
+            pid: lifecycleInstitution.pid,
+            name: lifecycleInstitution.name,
+            status: "ACTIVE"
+          }}
+          onClose={() => setLifecycleInstitution(null)}
+          onSuccess={() => {
+            if (onRefresh) onRefresh();
+          }}
+        />
       )}
     </div>
   );

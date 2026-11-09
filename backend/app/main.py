@@ -16,7 +16,8 @@ from app.models.entities import (
     AdmissionDetail, RegulatoryCase
 )
 from app.schemas.admission import (
-    LoginRequest, RegisterRequest, InstitutionCreate, ProgrammeCreate, ApprovalCreate,
+    LoginRequest, RegisterRequest, InstitutionCreate, InstitutionUpdate, InstitutionStatusUpdate,
+    ProgrammeCreate, ProgrammeIntakeUpdate, ApprovalCreate,
     SingleStudentEnrolRequest, EnrolmentStatusUpdate, IdentityCorrectionRequest,
     OpenCaseRequest, InstitutionCaseResponse, OfficerDecisionRequest,
     CreateConsentRequest, UpdateConsentStatusRequest, VerifierQueryRequest
@@ -220,9 +221,417 @@ def create_institution(
         SeatApproval(approval_id=appr.approval_id, category_code="TFW", approved_seats=3, is_above_intake=True)
     ]
     db.add_all(seat_caps)
+    db.flush()
+
+    # Append immutable audit ledger record
+    VerificationAuditEngine._append_audit_block(
+        db,
+        actor_id=current_user.user_id,
+        actor_role="AICTE_HQ",
+        action="INSTITUTION_REGISTERED",
+        resource_type="INSTITUTION",
+        resource_id=inst.institution_id,
+        payload={
+            "pid": inst.pid,
+            "name": inst.name,
+            "regional_office": inst.regional_office,
+            "state": inst.state,
+            "status": "ACTIVE",
+            "initial_programme": p.programme_name,
+            "initial_intake": 60,
+            "officer_email": current_user.email
+        }
+    )
+
     db.commit()
     db.refresh(inst)
     return inst
+
+@app.get(f"{settings.API_V1_STR}/institutions/{{institution_id}}/details")
+def get_institution_full_details(
+    institution_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["AICTE_HQ", "INSTITUTION_NODAL"]))
+):
+    """Retrieves full institution profile, academic programmes, quota caps, active enrolment counts, and audit logs."""
+    inst = db.query(Institution).filter(Institution.institution_id == institution_id).first()
+    if not inst:
+        raise HTTPException(status_code=404, detail="Institution not found.")
+
+    programmes_data = []
+    total_approved_intake = 0
+    total_active_enrolled = 0
+
+    for p in inst.programmes:
+        approval = db.query(Approval).filter(
+            Approval.programme_id == p.programme_id,
+            Approval.academic_year == "2026-27"
+        ).first()
+
+        caps = {}
+        if approval:
+            total_approved_intake += approval.approved_intake
+            for sc in approval.seat_approvals:
+                caps[sc.category_code] = {
+                    "seats": sc.approved_seats,
+                    "is_above_intake": sc.is_above_intake
+                }
+
+        enrolled_count = db.query(Enrolment).filter(
+            Enrolment.programme_id == p.programme_id,
+            Enrolment.enrolment_status == "ACTIVE"
+        ).count()
+        total_active_enrolled += enrolled_count
+
+        programmes_data.append({
+            "programme_id": p.programme_id,
+            "name": p.programme_name,
+            "level": p.level,
+            "duration_years": p.duration_years,
+            "is_active": p.is_active,
+            "approved_intake": approval.approved_intake if approval else 0,
+            "active_enrolment": enrolled_count,
+            "eoa_ref": approval.eoa_reference_number if approval else "PENDING_EOA",
+            "seat_caps": caps
+        })
+
+    # Retrieve audit history for this institution
+    audit_records = db.query(AuditLog).filter(
+        AuditLog.resource_id == inst.institution_id
+    ).order_by(AuditLog.log_id.desc()).limit(15).all()
+
+    audit_history = []
+    for log in audit_records:
+        audit_history.append({
+            "log_id": log.log_id,
+            "timestamp": log.timestamp.isoformat() if hasattr(log.timestamp, "isoformat") else str(log.timestamp),
+            "actor_id": log.actor_id,
+            "actor_role": log.actor_role,
+            "action": log.action,
+            "details": log.details_json,
+            "block_hash": log.current_block_hash[:16] + "..." if log.current_block_hash else ""
+        })
+
+    return {
+        "institution_id": inst.institution_id,
+        "pid": inst.pid,
+        "name": inst.name,
+        "address": inst.address,
+        "state": inst.state,
+        "district": inst.district,
+        "regional_office": inst.regional_office,
+        "institution_type": inst.institution_type,
+        "status": inst.status,
+        "created_at": inst.created_at.isoformat() if hasattr(inst.created_at, "isoformat") else str(inst.created_at),
+        "total_approved_intake": total_approved_intake,
+        "total_active_enrolled": total_active_enrolled,
+        "programmes": programmes_data,
+        "audit_history": audit_history
+    }
+
+@app.put(f"{settings.API_V1_STR}/institutions/{{institution_id}}")
+def update_institution_profile(
+    institution_id: str,
+    req: InstitutionUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["AICTE_HQ"]))
+):
+    """AICTE HQ Officer endpoint to edit institution details with mandatory audit reason."""
+    inst = db.query(Institution).filter(Institution.institution_id == institution_id).first()
+    if not inst:
+        raise HTTPException(status_code=404, detail="Institution not found.")
+
+    if not req.amendment_reason or len(req.amendment_reason.strip()) < 5:
+        raise HTTPException(status_code=400, detail="A valid amendment rationale (at least 5 characters) is required.")
+
+    previous_values = {
+        "name": inst.name,
+        "address": inst.address,
+        "state": inst.state,
+        "district": inst.district,
+        "regional_office": inst.regional_office,
+        "institution_type": inst.institution_type
+    }
+
+    updated_fields = {}
+    if req.name is not None:
+        inst.name = req.name.strip()
+        updated_fields["name"] = inst.name
+    if req.address is not None:
+        inst.address = req.address.strip()
+        updated_fields["address"] = inst.address
+    if req.state is not None:
+        inst.state = req.state.strip()
+        updated_fields["state"] = inst.state
+    if req.district is not None:
+        inst.district = req.district.strip()
+        updated_fields["district"] = inst.district
+    if req.regional_office is not None:
+        inst.regional_office = req.regional_office.strip()
+        updated_fields["regional_office"] = inst.regional_office
+    if req.institution_type is not None:
+        inst.institution_type = req.institution_type.strip()
+        updated_fields["institution_type"] = inst.institution_type
+
+    # Append to immutable audit ledger
+    audit_entry = VerificationAuditEngine._append_audit_block(
+        db,
+        actor_id=current_user.user_id,
+        actor_role="AICTE_HQ",
+        action="INSTITUTION_PROFILE_UPDATED",
+        resource_type="INSTITUTION",
+        resource_id=inst.institution_id,
+        payload={
+            "officer_email": current_user.email,
+            "amendment_reason": req.amendment_reason.strip(),
+            "previous_values": previous_values,
+            "updated_values": updated_fields
+        }
+    )
+
+    db.commit()
+    db.refresh(inst)
+
+    return {
+        "status": "success",
+        "message": f"Institutional master record for {inst.name} successfully updated.",
+        "institution": {
+            "institution_id": inst.institution_id,
+            "pid": inst.pid,
+            "name": inst.name,
+            "address": inst.address,
+            "state": inst.state,
+            "district": inst.district,
+            "regional_office": inst.regional_office,
+            "institution_type": inst.institution_type,
+            "status": inst.status
+        },
+        "audit_hash": audit_entry.current_block_hash
+    }
+
+@app.patch(f"{settings.API_V1_STR}/institutions/{{institution_id}}/status")
+def update_institution_status(
+    institution_id: str,
+    req: InstitutionStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["AICTE_HQ"]))
+):
+    """
+    Status-Based Lifecycle transition (APH Section 7.3).
+    Permitted statuses: ACTIVE, UNDER_REVIEW, NO_ADMISSION, SUSPENDED, WITHDRAWN.
+    Records never deleted; full audit trail maintained.
+    """
+    valid_statuses = {"ACTIVE", "UNDER_REVIEW", "NO_ADMISSION", "SUSPENDED", "WITHDRAWN"}
+    new_status = req.status.upper().strip()
+    if new_status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{new_status}'. Allowed values are: {', '.join(sorted(valid_statuses))}"
+        )
+
+    if not req.reason or len(req.reason.strip()) < 5:
+        raise HTTPException(status_code=400, detail="A mandatory justification reason (at least 5 characters) must be supplied.")
+
+    inst = db.query(Institution).filter(Institution.institution_id == institution_id).first()
+    if not inst:
+        raise HTTPException(status_code=404, detail="Institution not found.")
+
+    prev_status = inst.status
+    inst.status = new_status
+
+    audit_entry = VerificationAuditEngine._append_audit_block(
+        db,
+        actor_id=current_user.user_id,
+        actor_role="AICTE_HQ",
+        action="INSTITUTION_STATUS_CHANGED",
+        resource_type="INSTITUTION",
+        resource_id=inst.institution_id,
+        payload={
+            "officer_email": current_user.email,
+            "previous_status": prev_status,
+            "updated_status": new_status,
+            "reason": req.reason.strip()
+        }
+    )
+
+    db.commit()
+    return {
+        "status": "success",
+        "institution_id": inst.institution_id,
+        "pid": inst.pid,
+        "name": inst.name,
+        "previous_status": prev_status,
+        "new_status": inst.status,
+        "audit_hash": audit_entry.current_block_hash,
+        "message": f"Institution {inst.name} status updated to {new_status}."
+    }
+
+@app.post(f"{settings.API_V1_STR}/institutions/{{institution_id}}/programmes")
+def add_institution_programme(
+    institution_id: str,
+    req: ProgrammeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["AICTE_HQ"]))
+):
+    """AICTE HQ Officer endpoint to add a new academic programme and configure EoA seat intake."""
+    inst = db.query(Institution).filter(Institution.institution_id == institution_id).first()
+    if not inst:
+        raise HTTPException(status_code=404, detail="Institution not found.")
+
+    acad_year = req.academic_year or "2026-27"
+    intake = req.approved_intake or 60
+
+    new_prog = Programme(
+        institution_id=inst.institution_id,
+        programme_name=req.programme_name.strip(),
+        level=req.level.strip(),
+        duration_years=req.duration_years,
+        is_active=True
+    )
+    db.add(new_prog)
+    db.flush()
+
+    eoa_ref = f"AICTE/{inst.regional_office}/{inst.pid}/{acad_year.split('-')[0]}/EOA-{new_prog.programme_id[:4].upper()}"
+    appr = Approval(
+        programme_id=new_prog.programme_id,
+        academic_year=acad_year,
+        eoa_reference_number=eoa_ref,
+        approved_intake=intake,
+        is_supernumerary_eligible=True
+    )
+    db.add(appr)
+    db.flush()
+
+    caps = req.seat_caps or {"NRI": max(1, intake // 20), "FN_OCI_CIWG": max(1, intake * 15 // 100), "TFW": max(1, intake // 20)}
+    seat_entries = []
+    for cat_code, seats in caps.items():
+        is_above = cat_code in ["FN_OCI_CIWG", "TFW", "JK_MIGRANT"]
+        seat_entries.append(SeatApproval(
+            approval_id=appr.approval_id,
+            category_code=cat_code,
+            approved_seats=seats,
+            is_above_intake=is_above
+        ))
+    db.add_all(seat_entries)
+
+    audit_entry = VerificationAuditEngine._append_audit_block(
+        db,
+        actor_id=current_user.user_id,
+        actor_role="AICTE_HQ",
+        action="PROGRAMME_ADDED",
+        resource_type="INSTITUTION",
+        resource_id=inst.institution_id,
+        payload={
+            "officer_email": current_user.email,
+            "programme_name": new_prog.programme_name,
+            "programme_id": new_prog.programme_id,
+            "level": new_prog.level,
+            "approved_intake": intake,
+            "eoa_ref": eoa_ref,
+            "seat_caps": caps
+        }
+    )
+
+    db.commit()
+    db.refresh(new_prog)
+
+    return {
+        "status": "success",
+        "programme_id": new_prog.programme_id,
+        "programme_name": new_prog.programme_name,
+        "level": new_prog.level,
+        "approved_intake": intake,
+        "eoa_reference_number": eoa_ref,
+        "audit_hash": audit_entry.current_block_hash
+    }
+
+@app.put(f"{settings.API_V1_STR}/institutions/{{institution_id}}/programmes/{{programme_id}}/eoa")
+def update_programme_eoa_and_caps(
+    institution_id: str,
+    programme_id: str,
+    req: ProgrammeIntakeUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["AICTE_HQ"]))
+):
+    """AICTE HQ Officer endpoint to adjust sanctioned intake and supernumerary caps with mandatory rationale."""
+    prog = db.query(Programme).filter(
+        Programme.programme_id == programme_id,
+        Programme.institution_id == institution_id
+    ).first()
+    if not prog:
+        raise HTTPException(status_code=404, detail="Programme not found for this institution.")
+
+    if not req.reason or len(req.reason.strip()) < 5:
+        raise HTTPException(status_code=400, detail="A mandatory justification reason (at least 5 characters) must be supplied.")
+
+    appr = db.query(Approval).filter(
+        Approval.programme_id == prog.programme_id,
+        Approval.academic_year == req.academic_year
+    ).first()
+
+    if not appr:
+        appr = Approval(
+            programme_id=prog.programme_id,
+            academic_year=req.academic_year,
+            eoa_reference_number=f"AICTE/EOA/{req.academic_year}/{prog.programme_id[:6].upper()}",
+            approved_intake=req.approved_intake,
+            is_supernumerary_eligible=True
+        )
+        db.add(appr)
+        db.flush()
+
+    prev_intake = appr.approved_intake
+    appr.approved_intake = req.approved_intake
+
+    # Update or add seat quota caps
+    prev_caps = {}
+    for sc in appr.seat_approvals:
+        prev_caps[sc.category_code] = sc.approved_seats
+
+    if req.seat_caps:
+        for cat_code, seats in req.seat_caps.items():
+            existing_cap = next((sc for sc in appr.seat_approvals if sc.category_code == cat_code), None)
+            if existing_cap:
+                existing_cap.approved_seats = seats
+            else:
+                is_above = cat_code in ["FN_OCI_CIWG", "TFW", "JK_MIGRANT"]
+                db.add(SeatApproval(
+                    approval_id=appr.approval_id,
+                    category_code=cat_code,
+                    approved_seats=seats,
+                    is_above_intake=is_above
+                ))
+
+    audit_entry = VerificationAuditEngine._append_audit_block(
+        db,
+        actor_id=current_user.user_id,
+        actor_role="AICTE_HQ",
+        action="PROGRAMME_INTAKE_AMENDED",
+        resource_type="INSTITUTION",
+        resource_id=institution_id,
+        payload={
+            "officer_email": current_user.email,
+            "programme_id": programme_id,
+            "programme_name": prog.programme_name,
+            "academic_year": req.academic_year,
+            "previous_intake": prev_intake,
+            "updated_intake": req.approved_intake,
+            "previous_caps": prev_caps,
+            "updated_caps": req.seat_caps,
+            "amendment_reason": req.reason.strip()
+        }
+    )
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"Sanctioned intake for {prog.programme_name} updated to {req.approved_intake}.",
+        "programme_id": prog.programme_id,
+        "academic_year": req.academic_year,
+        "approved_intake": appr.approved_intake,
+        "audit_hash": audit_entry.current_block_hash
+    }
 
 @app.delete(f"{settings.API_V1_STR}/institutions/{{institution_id}}")
 def deactivate_institution(
@@ -234,9 +643,32 @@ def deactivate_institution(
     inst = db.query(Institution).filter(Institution.institution_id == institution_id).first()
     if not inst:
         raise HTTPException(status_code=404, detail="Institution not found.")
-    inst.status = "NO_ADMISSION" if inst.status == "ACTIVE" else "CLOSED"
+    
+    prev_status = inst.status
+    inst.status = "NO_ADMISSION" if inst.status == "ACTIVE" else "WITHDRAWN"
+
+    audit_entry = VerificationAuditEngine._append_audit_block(
+        db,
+        actor_id=current_user.user_id,
+        actor_role="AICTE_HQ",
+        action="INSTITUTION_DEACTIVATED",
+        resource_type="INSTITUTION",
+        resource_id=inst.institution_id,
+        payload={
+            "officer_email": current_user.email,
+            "previous_status": prev_status,
+            "new_status": inst.status,
+            "reason": "Administrative deactivation invoking APH Clause 7.3(c) No-Admission / Withdrawn status."
+        }
+    )
+
     db.commit()
-    return {"status": "success", "message": f"Institution {inst.name} set to status: {inst.status}"}
+    return {
+        "status": "success",
+        "message": f"Institution {inst.name} set to status: {inst.status}",
+        "new_status": inst.status,
+        "audit_hash": audit_entry.current_block_hash
+    }
 
 @app.get(f"{settings.API_V1_STR}/institutions/{{institution_id}}/eoa")
 def get_institution_eoa_details(institution_id: str, academic_year: str = "2026-27", db: Session = Depends(get_db)):
