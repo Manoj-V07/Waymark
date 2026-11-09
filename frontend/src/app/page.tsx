@@ -4,6 +4,8 @@ import React, { useState, useEffect } from "react";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { OverviewSection } from "@/components/overview/OverviewSection";
 import { UploadSection } from "@/components/upload/UploadSection";
+import { ComplianceSection } from "@/components/compliance/ComplianceSection";
+import { AnomaliesSection } from "@/components/anomalies/AnomaliesSection";
 import { DisputesSection } from "@/components/disputes/DisputesSection";
 import { ValidatorSection } from "@/components/validator/ValidatorSection";
 import { InstitutionsSection } from "@/components/institutions/InstitutionsSection";
@@ -83,6 +85,26 @@ export default function HomePage() {
               selectedProgId={selectedProgId}
               setSelectedProgId={setSelectedProgId}
               onUploadSuccess={loadInstitutions}
+            />
+          )}
+
+          {activeTab === "compliance" && (
+            <ComplianceSection
+              institutions={institutions}
+              selectedInstId={selectedInstId}
+              setSelectedInstId={setSelectedInstId}
+              selectedProgId={selectedProgId}
+              setSelectedProgId={setSelectedProgId}
+            />
+          )}
+
+          {activeTab === "anomalies" && (
+            <AnomaliesSection
+              institutions={institutions}
+              selectedInstId={selectedInstId}
+              setSelectedInstId={setSelectedInstId}
+              selectedProgId={selectedProgId}
+              setSelectedProgId={setSelectedProgId}
             />
           )}
 

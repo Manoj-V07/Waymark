@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { 
-  CheckCircle2, 
-  Send, 
-  Gavel, 
-  RefreshCw 
+import {
+  CheckCircle2,
+  Send,
+  Gavel,
+  RefreshCw
 } from "lucide-react";
 import { RegulatoryCaseData } from "@/types";
 
@@ -31,6 +31,7 @@ export function DisputesSection() {
         setSelectedCase(data[0]);
       }
     } catch {
+      // Fallback demo mock
       const mockCases: RegulatoryCaseData[] = [
         {
           case_id: "c_001",
@@ -56,6 +57,7 @@ export function DisputesSection() {
 
   useEffect(() => {
     loadCases();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleInstitutionResponse = async (e: React.FormEvent) => {
@@ -151,19 +153,17 @@ export function DisputesSection() {
                 <button
                   key={c.case_id}
                   onClick={() => setSelectedCase(c)}
-                  className={`w-full text-left p-4 transition ${
-                    isSelected ? "bg-blue-50/70 border-l-4 border-blue-900" : "hover:bg-slate-50"
-                  }`}
+                  className={`w-full text-left p-4 transition ${isSelected ? "bg-blue-50/70 border-l-4 border-blue-900" : "hover:bg-slate-50"
+                    }`}
                 >
                   <div className="flex justify-between items-start mb-1">
                     <span className="font-mono text-xs font-bold text-blue-900">{c.case_number}</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      c.status.startsWith("RESOLVED") 
-                        ? "bg-emerald-100 text-emerald-800"
-                        : c.status === "SHOW_CAUSE_ISSUED"
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${c.status.startsWith("RESOLVED")
+                      ? "bg-emerald-100 text-emerald-800"
+                      : c.status === "SHOW_CAUSE_ISSUED"
                         ? "bg-rose-100 text-rose-800"
                         : "bg-amber-100 text-amber-800"
-                    }`}>
+                      }`}>
                       {c.status}
                     </span>
                   </div>
@@ -237,7 +237,7 @@ export function DisputesSection() {
                   <span>Institution Nodal Officer Action</span>
                 </div>
                 <p className="text-xs text-slate-500">Submit justification or counselling merit list allotment evidence.</p>
-                
+
                 <form onSubmit={handleInstitutionResponse} className="space-y-3">
                   <textarea
                     rows={3}

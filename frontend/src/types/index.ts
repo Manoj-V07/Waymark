@@ -65,4 +65,42 @@ export interface RegulatoryCaseData {
   created_at: string;
 }
 
-export type TabType = "overview" | "upload" | "validator" | "institutions" | "disputes";
+export interface ComplianceFlag {
+  rule_code: string;
+  clause: string;
+  severity: "INFO" | "WARNING" | "CRITICAL";
+  violation_message: string;
+  excess_count?: number;
+  indicative_penalty_clause?: string;
+  recommendation: string;
+}
+
+export interface ComplianceEvaluationResult {
+  compliant: boolean;
+  approved_intake: number;
+  within_intake_admitted: number;
+  supernumerary_admitted: number;
+  total_enrolled: number;
+  total_allowed_capacity: number;
+  rules_applied: string[];
+  flags: ComplianceFlag[];
+}
+
+export interface AnomalyMatch {
+  rule_code: string;
+  severity: string;
+  confidence_score: number;
+  candidate_a: { student_id: string; name: string; dob: string; roll_no?: string; apaar_masked?: string };
+  candidate_b: { student_id: string; name: string; dob: string; roll_no?: string; apaar_masked?: string };
+  violation_message: string;
+  recommendation: string;
+}
+
+export interface AnomalyDetectionResult {
+  programme_id: string;
+  candidates_analyzed: number;
+  anomalies_detected: number;
+  matches: AnomalyMatch[];
+}
+
+export type TabType = "overview" | "upload" | "compliance" | "anomalies" | "disputes" | "validator" | "institutions";

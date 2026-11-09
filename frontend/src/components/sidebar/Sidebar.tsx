@@ -7,7 +7,9 @@ import {
   ShieldCheck, 
   Building2, 
   CheckCircle,
-  Gavel
+  Gavel,
+  Scale,
+  Sparkles
 } from "lucide-react";
 import { TabType } from "@/types";
 
@@ -31,6 +33,18 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
       icon: UploadCloud
     },
     {
+      id: "compliance" as TabType,
+      label: "Regulatory Engine",
+      description: "APH 2024-27 intake pools",
+      icon: Scale
+    },
+    {
+      id: "anomalies" as TabType,
+      label: "Demographic Anomalies",
+      description: "TF-IDF near-duplicate detector",
+      icon: Sparkles
+    },
+    {
       id: "disputes" as TabType,
       label: "Regulatory Disputes",
       description: "Show-cause & officer review",
@@ -51,7 +65,7 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
   ];
 
   return (
-    <aside className="w-64 bg-white border-r border-slate-200 flex flex-col justify-between h-screen sticky top-0 z-40 shadow-sm">
+    <aside className="w-64 bg-white border-r border-slate-200 flex flex-col justify-between h-screen sticky top-0 z-40 shadow-sm shrink-0">
       <div>
         <div className="p-5 border-b border-slate-200 flex items-center space-x-3">
           <div className="bg-blue-900 text-white font-bold p-2 rounded-lg text-sm tracking-wider shadow-sm">
